@@ -1,0 +1,14 @@
+target/
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.DS_Store
+.env
+.env.*
+*.local
+samconfig.toml
+samconfig.yaml
+sam/.aws-sam/
+.aws-sam/

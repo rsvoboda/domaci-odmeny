@@ -1,0 +1,28 @@
+:root {
+    --pico-font-size: 100%;
+}
+
+header.container nav {
+    align-items: center;
+}
+
+header.container nav ul:last-child {
+    gap: 1rem;
+    align-items: center;
+}
+
+main.container {
+    padding-block: 1.5rem 3rem;
+}
+
+article.notice {
+    border-left: 4px solid var(--pico-del-color);
+}
+
+.grid a[role="button"] {
+    text-align: center;
+}
+
+footer.container {
+    opacity: 0.7;
+}

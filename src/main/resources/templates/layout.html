@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{#insert title}{appName}{/insert}</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/pico.min.css">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script src="/assets/htmx.min.js" defer></script>
+</head>
+<body hx-headers='{"{inject:csrf.headerName}":"{inject:csrf.token}"}'>
+<header class="container">
+    <nav>
+        <ul>
+            <li><strong>{appName}</strong></li>
+        </ul>
+        <ul>
+            <li>{displayName}</li>
+            <li><a href="/logout" role="button" class="secondary outline">Odhlásit</a></li>
+        </ul>
+    </nav>
+</header>
+<main class="container">
+    {#insert body}{/insert}
+</main>
+<footer class="container">
+    <small>{householdName} · Domácí odměny</small>
+</footer>
+</body>
+</html>

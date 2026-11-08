@@ -1,0 +1,354 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Domácí odměny — family chore rewards (v1)
+
+Parameters:
+  OidcCallbackUrl:
+    Type: String
+    Default: http://localhost:8080/q/oidc-callback
+    Description: >-
+      Cognito callback URL. After the first deploy set this to
+      <FunctionUrl>/q/oidc-callback and redeploy.
+
+  OidcLogoutUrl:
+    Type: String
+    Default: http://localhost:8080/
+    Description: >-
+      Cognito logout URL. After the first deploy set this to <FunctionUrl>/ and
+      redeploy.
+
+  SessionSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: >-
+      Stable secret (at least 32 characters) used to encrypt the OIDC session
+      cookie. Keep the same value across deployments so sessions survive.
+
+  BudgetAlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional email address for the monthly AWS budget alert.
+
+  LambdaMemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 2048
+
+Conditions:
+  HasBudgetAlertEmail: !Not [!Equals [!Ref BudgetAlertEmail, ""]]
+
+Resources:
+  # -------------------------------------------------------------------------
+  # DynamoDB — four small provisioned tables, 20 RCU / 20 WCU in total.
+  # No GSIs. Data is retained when the stack is deleted.
+  # -------------------------------------------------------------------------
+  MembersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${AWS::StackName}-Members"
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${AWS::StackName}-Tasks"
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+
+  ActivityTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${AWS::StackName}-Activity"
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+
+  PendingTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${AWS::StackName}-Pending"
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+
+  # -------------------------------------------------------------------------
+  # Cognito — username sign-in, no self sign-up, parent/child groups.
+  # -------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-users"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      UsernameConfiguration:
+        CaseSensitive: false
+      MfaConfiguration: "OFF"
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "domaci-odmeny-${AWS::AccountId}"
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub "${AWS::StackName}-web"
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - profile
+        - email
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - !Ref OidcCallbackUrl
+      LogoutURLs:
+        - !Ref OidcLogoutUrl
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+
+  ParentsGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: parents
+      UserPoolId: !Ref UserPool
+      Precedence: 1
+
+  ChildrenGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: children
+      UserPoolId: !Ref UserPool
+      Precedence: 2
+
+  # -------------------------------------------------------------------------
+  # Lambda
+  # -------------------------------------------------------------------------
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: dynamodb-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt MembersTable.Arn
+                  - !GetAtt TasksTable.Arn
+                  - !GetAtt ActivityTable.Arn
+                  - !GetAtt PendingTable.Arn
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-app"
+      RetentionInDays: 7
+
+  AppFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-app"
+      CodeUri: ../target/function.zip
+      Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: 10
+      ReservedConcurrentExecutions: 5
+      Role: !GetAtt FunctionRole.Arn
+      Environment:
+        Variables:
+          OIDC_AUTH_SERVER_URL: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+          OIDC_CLIENT_ID: !Ref UserPoolClient
+          OIDC_CLIENT_SECRET: !GetAtt UserPoolClient.ClientSecret
+          OIDC_SESSION_SECRET: !Ref SessionSecret
+          HOUSEHOLD_ID: default
+          MEMBERS_TABLE: !Ref MembersTable
+          TASKS_TABLE: !Ref TasksTable
+          ACTIVITY_TABLE: !Ref ActivityTable
+          PENDING_TABLE: !Ref PendingTable
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: BUFFERED
+
+  # -------------------------------------------------------------------------
+  # Guardrails
+  # -------------------------------------------------------------------------
+  ErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Domácí odměny — Lambda errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AppFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Domácí odměny — Lambda throttles
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AppFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 1
+          Unit: USD
+      NotificationsWithSubscribers: !If
+        - HasBudgetAlertEmail
+        - - Notification:
+              NotificationType: ACTUAL
+              ComparisonOperator: GREATER_THAN
+              Threshold: 80
+            Subscribers:
+              - SubscriptionType: EMAIL
+                Address: !Ref BudgetAlertEmail
+        - !Ref AWS::NoValue
+
+Outputs:
+  FunctionUrl:
+    Description: Public HTTPS endpoint of the application
+    Value: !GetAtt AppFunctionUrl.FunctionUrl
+
+  CognitoUserPoolId:
+    Value: !Ref UserPool
+
+  CognitoClientId:
+    Value: !Ref UserPoolClient
+
+  CognitoHostedUiDomain:
+    Value: !Sub "${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+
+  MembersTable:
+    Value: !Ref MembersTable
+
+  TasksTable:
+    Value: !Ref TasksTable
+
+  ActivityTable:
+    Value: !Ref ActivityTable
+
+  PendingTable:
+    Value: !Ref PendingTable
