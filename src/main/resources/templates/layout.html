@@ -16,12 +16,21 @@
             <li><strong>{appName}</strong></li>
         </ul>
         <ul>
-            <li>{displayName}</li>
+            <li><a href="/">Domů</a></li>
+            {#if isParent}
+            <li><a href="/approvals">Schvalování</a></li>
+            {#else}
+            <li><a href="/history">Historie</a></li>
+            {/if}
+            <li class="user-name">{displayName}</li>
             <li><a href="/logout" role="button" class="secondary outline">Odhlásit</a></li>
         </ul>
     </nav>
 </header>
 <main class="container">
+    {#if flashText}
+    <article class="flash {flashKind}">{flashText}</article>
+    {/if}
     {#insert body}{/insert}
 </main>
 <footer class="container">

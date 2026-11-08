@@ -1,0 +1,20 @@
+{#include layout}
+{#title}Schvalování — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Schvalování</h1>
+    <p>Práce, které čekají na potvrzení ({pendingCount}).</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{/if}
+
+<article>
+    {#include pending-list}{/include}
+</article>
+{/body}
+{/include}

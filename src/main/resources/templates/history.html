@@ -1,0 +1,29 @@
+{#include layout}
+{#title}Historie — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Moje historie</h1>
+    <p>{displayName} · {householdName}</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{/if}
+
+{#if groups.isEmpty()}
+<article><p>Zatím žádné zápisy.</p></article>
+{/if}
+
+{#for group in groups}
+<article>
+    <header><strong>{group.label}</strong></header>
+    {#let history=group.completions}
+    {#include completion-list}{/include}
+    {/let}
+</article>
+{/for}
+{/body}
+{/include}

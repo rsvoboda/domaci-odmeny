@@ -10,20 +10,29 @@ a task-assignment or reminder system.
 - Product proposal: [`docs/proposal.md`](docs/proposal.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/README.md)
 
-## Current status — Slice 1 (deployable skeleton)
+## Current status — Slice 2 (first vertical flow)
 
 Implemented:
 
 - Quarkus 3.40 / Java 21 project with Qute + HTMX + Pico.css
-- Server-side security policies and a protected home page
+- Server-side security policies, role-aware child and parent home screens
 - Cognito/OIDC configuration for production
 - Development login (no identity provider needed locally)
-- DynamoDB client, member repository, local table bootstrap and seed data
+- Household settings and a seeded chore catalog
+  (`Odpadky` 10 Kč, `Myčka` 10 Kč, `Vysávání` 20 Kč)
+- Child flow: log a completed chore with an optional note, see the current
+  month's base + bonus + total, browse history and rejection reasons
+- Parent flow: approval queue, approve (credits the reward) or reject with a
+  required reason
+- Append-only ledger entries written atomically with the completion state
+- DynamoDB adapters using transactions with condition expressions, so double
+  approval cannot credit twice
 - SAM template: Cognito, four DynamoDB tables, Lambda + Function URL, log
   retention, alarms and a $1 budget
-- Unit tests for money/period primitives and a web security test
+- 42 hermetic tests: money/period primitives, domain workflow, web flow, CSRF,
+  authorization
 
-Not implemented yet: chores, completions, approvals, ledger, statements,
+Not implemented yet: monthly statements, corrections, closing a month, payouts,
 exports, PWA. See the delivery plan in the proposal.
 
 ## Prerequisites
@@ -58,7 +67,19 @@ The Maven wrapper is committed, so no local Maven installation is required.
    page and can choose one of four seeded users (two parents, two children).
 
 The application still starts if DynamoDB Local is not running; the home page
-shows a warning banner instead of the member profile.
+shows a warning banner instead of the data.
+
+### The Slice 2 flow
+
+1. Log in as `child1`. The home page lists the three chores. Tap one, optionally
+   add a note, and submit.
+2. Log out and log in as `parent1`. The approval queue shows the pending chore.
+   Approve it (the reward is credited) or reject it with a reason.
+3. Log in as `child1` again. The current-month total now includes the reward,
+   and the history shows the status (or the rejection reason).
+
+The seed chores require approval. Setting `requiresApproval` to `false` on a
+chore credits it immediately without a queue item.
 
 ### Development login
 
@@ -72,7 +93,12 @@ Cognito handles authentication.
 ./mvnw test
 ```
 
-The web tests use `@TestSecurity`; they do not need DynamoDB or Cognito.
+The tests are hermetic. Web tests use `@TestSecurity`, and an in-memory
+`@Alternative` implementation of every repository replaces DynamoDB, so neither
+DynamoDB nor Cognito is needed.
+
+DynamoDB transaction behavior (condition expressions, idempotent approval) is
+smoke-tested against DynamoDB Local through the dev profile.
 
 ## Build
 
@@ -166,8 +192,9 @@ Use group `children` for children. Set the first password with
 `admin-set-user-password --permanent`.
 
 > Member records in DynamoDB are not provisioned by the SAM stack yet. The
-> `cognitoSub` of each Cognito user must be linked to a member record; this is
-> part of Slice 2.
+> `cognitoSub` of each Cognito user must be linked to a member record. Until a
+> provisioning step exists, create the four `MEMBER#<id>` items in the Members
+> table and set `cognitoSub` to the Cognito user's `sub`.
 
 ### Two-phase deployment caveat
 
@@ -180,6 +207,10 @@ Every later deployment must keep the real `OidcCallbackUrl`, `OidcLogoutUrl` and
 | Property | Environment variable | Default | Purpose |
 |---|---|---|---|
 | `app.household-id` | `HOUSEHOLD_ID` | `default` | Household partition key |
+| `app.household-name` | `HOUSEHOLD_NAME` | `Naše domácnost` | Name shown in the UI |
+| `app.currency` | `CURRENCY` | `CZK` | Household currency |
+| `app.timezone` | `TIMEZONE` | `Europe/Prague` | Accounting period timezone |
+| `app.seed.catalog` | `SEED_CATALOG` | `false` (`true` in prod) | Seed household + chore catalog if empty |
 | `app.dynamodb.region` | `AWS_REGION` | `eu-central-1` | DynamoDB region |
 | `app.dynamodb.endpoint-override` | — | empty | Local DynamoDB endpoint |
 | `app.dynamodb.tables.members` | `MEMBERS_TABLE` | `Members` | Members table |
@@ -197,14 +228,18 @@ Every later deployment must keep the real `OidcCallbackUrl`, `OidcLogoutUrl` and
 src/main/java/cz/domaci/odmeny/
 ├── config/            # typed application configuration
 ├── shared/            # Money, Period — domain primitives
+├── household/         # household settings and period/time helpers
 ├── member/            # Member domain, repository interface, service
+├── task/              # chore catalog
+├── completion/        # logging, approval workflow, pending queue
+├── ledger/            # append-only ledger entries and earnings
 ├── security/          # dev-only login mechanism and resources
 ├── infrastructure/
-│   └── dynamodb/      # client, repository adapter, local bootstrap
-└── web/               # Qute-backed HTTP resources
+│   └── dynamodb/      # client, repository adapters, local bootstrap
+└── web/               # Qute-backed HTTP resources and view models
 
 src/main/resources/
-├── templates/         # Qute layout and pages
+├── templates/         # Qute layout, child/parent pages, fragments
 ├── META-INF/resources # vendored HTMX, Pico.css, favicon
 └── application.properties
 
@@ -223,16 +258,25 @@ compose.yaml           # DynamoDB Local for development
   token as the `X-CSRF-TOKEN` header from the layout.
 - **DynamoDB keys** follow ADR-0004. A member is looked up by querying the
   household partition and filtering on `cognitoSub`; four members do not
-  justify a GSI.
+  justify a GSI. Household settings live under `SK=HOUSEHOLD#<id>` in the
+  Members table.
+- **Approval is atomic.** The completion update, the reward ledger entry and the
+  queue removal are one DynamoDB transaction guarded by condition expressions,
+  so a double approval or a lost race fails with a conflict instead of crediting
+  twice.
+- **The ledger is append-only.** Reward entries use a deterministic id
+  (`reward-<completionId>`), and corrections in later slices will add new
+  entries rather than edit old ones.
 - **Tables are retained** when the stack is deleted, to protect financial
   history. Delete them manually if you really want a clean slate.
 
 ## Known gaps and follow-ups
 
-- The proposal lists a `Household` entity but no household storage table. This
-  will be resolved in Slice 2 (candidate: a `HOUSEHOLD#<id>` item in the
-  Members table, or a dedicated settings item).
-- Production member provisioning and Cognito `sub` linking are Slice 2 work.
+- Production member provisioning and Cognito `sub` linking are not automated.
+  In production the stack seeds the household and chore catalog only; member
+  records must be created and linked to Cognito users separately.
+- The proposal's settings UI (editing the catalog and rewards) is not built yet.
+  Chores are seeded and can be changed directly in DynamoDB.
 - Keycloak Dev Services is not used. The dev login mechanism keeps local
   startup fast and container-free while exercising the same domain and UI code
   as production.

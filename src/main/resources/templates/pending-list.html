@@ -1,0 +1,29 @@
+{#if pending.isEmpty()}
+<p>Fronta je prázdná. Všechno je vyřízené.</p>
+{#else}
+<ul class="pending-list">
+    {#for item in pending}
+    <li class="pending-item">
+        <div class="history-line">
+            <strong>{item.memberName}</strong> · {item.taskName}
+            <span class="reward">{item.rewardText}</span>
+        </div>
+        <div class="meta">{item.whenText}</div>
+        {#if item.note}<div class="note">{item.note}</div>{/if}
+        <div class="review-actions">
+            <form method="post" action="/approvals/{item.completionId}/approve">
+                <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+                <button type="submit" class="approve">Schválit</button>
+            </form>
+            <form method="post" action="/approvals/{item.completionId}/reject" class="reject-form">
+                <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+                <input type="text" name="reason" maxlength="500" required
+                       placeholder="Důvod zamítnutí"
+                       aria-label="Důvod zamítnutí práce {item.taskName}">
+                <button type="submit" class="secondary outline">Zamítnout</button>
+            </form>
+        </div>
+    </li>
+    {/for}
+</ul>
+{/if}

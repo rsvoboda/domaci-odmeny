@@ -1,0 +1,54 @@
+{#include layout}
+{#title}Domů — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Ahoj, {displayName}</h1>
+    <p>{roleLabel} · {periodLabel}</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{/if}
+
+<article>
+    <header><strong>Co jsi udělal?</strong></header>
+    <p>Klepněte na práci, kterou jste dokončili. Poznámku můžete přidat, ale nemusíte.</p>
+    <div class="task-grid">
+        {#for task in tasks}
+        <form method="post" action="/completions" class="task-card">
+            <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+            <input type="hidden" name="taskId" value="{task.id}">
+            <button type="submit" class="task-button">
+                <span class="task-name">{task.name}</span>
+                <span class="task-reward">{task.rewardText}</span>
+            </button>
+            <input type="text" name="note" maxlength="500"
+                   placeholder="Poznámka (nepovinné)"
+                   aria-label="Poznámka k práci {task.name}">
+        </form>
+        {/for}
+    </div>
+</article>
+
+<article>
+    <header><strong>Tento měsíc</strong></header>
+    <dl class="earnings">
+        <dt>Základní odměna</dt>
+        <dd>{baseText}</dd>
+        <dt>Odměny za práci</dt>
+        <dd>{bonusText}</dd>
+        <dt><strong>Celkem</strong></dt>
+        <dd><strong>{totalText}</strong></dd>
+    </dl>
+</article>
+
+<article>
+    <header><strong>Poslední zápisy</strong></header>
+    {#include completion-list}{/include}
+    <footer><a href="/history">Celá historie</a></footer>
+</article>
+{/body}
+{/include}

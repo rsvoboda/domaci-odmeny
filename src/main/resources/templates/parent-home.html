@@ -1,0 +1,52 @@
+{#include layout}
+{#title}Domů — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Ahoj, {displayName}</h1>
+    <p>{roleLabel} · {householdName}</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{/if}
+
+<article>
+    <header><strong>Čeká na schválení ({pendingCount})</strong></header>
+    {#include pending-list}{/include}
+    {#if pendingCount > 0}
+    <footer><a href="/approvals">Otevřít celou frontu</a></footer>
+    {/if}
+</article>
+
+<article>
+    <header><strong>Děti tento měsíc</strong></header>
+    {#if children.isEmpty()}
+    <p>V domácnosti zatím nejsou žádné děti.</p>
+    {#else}
+    <table>
+        <thead>
+        <tr>
+            <th>Dítě</th>
+            <th>Základ</th>
+            <th>Odměny</th>
+            <th>Celkem</th>
+        </tr>
+        </thead>
+        <tbody>
+        {#for child in children}
+        <tr>
+            <td>{child.displayName}</td>
+            <td>{child.baseText}</td>
+            <td>{child.bonusText}</td>
+            <td><strong>{child.totalText}</strong></td>
+        </tr>
+        {/for}
+        </tbody>
+    </table>
+    {/if}
+</article>
+{/body}
+{/include}

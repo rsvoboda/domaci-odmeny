@@ -11,6 +11,10 @@ header.container nav ul:last-child {
     align-items: center;
 }
 
+header.container nav .user-name {
+    opacity: 0.8;
+}
+
 main.container {
     padding-block: 1.5rem 3rem;
 }
@@ -19,10 +23,187 @@ article.notice {
     border-left: 4px solid var(--pico-del-color);
 }
 
-.grid a[role="button"] {
-    text-align: center;
+article.flash {
+    padding: 0.75rem 1rem;
+    border-left: 4px solid var(--pico-primary);
+    margin-bottom: 1.5rem;
+}
+
+article.flash.success {
+    border-left-color: var(--pico-ins-color);
+}
+
+article.flash.warning {
+    border-left-color: var(--pico-mark-color);
+}
+
+article.flash.error {
+    border-left-color: var(--pico-del-color);
+}
+
+/* Chore buttons ---------------------------------------------------------- */
+.task-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1rem;
+}
+
+.task-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-card-background-color);
+}
+
+.task-card input[type="text"] {
+    margin-bottom: 0;
+}
+
+button.task-button {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    margin-bottom: 0;
+    padding: 1rem;
+}
+
+.task-name {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.task-reward {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+/* Earnings --------------------------------------------------------------- */
+dl.earnings {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 1rem;
+    margin-bottom: 0;
+}
+
+dl.earnings dt,
+dl.earnings dd {
+    margin-bottom: 0;
+}
+
+dl.earnings dd {
+    text-align: right;
+}
+
+/* History and approval queue --------------------------------------------- */
+ul.history-list,
+ul.pending-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+li.history-item,
+li.pending-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+li.history-item:last-child,
+li.pending-item:last-child {
+    border-bottom: none;
+}
+
+.history-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: baseline;
+}
+
+.reward {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.meta {
+    font-size: 0.85rem;
+    opacity: 0.75;
+}
+
+.note {
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.rejection {
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    color: var(--pico-del-color);
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--pico-muted-border-color);
+}
+
+.badge.pending {
+    background: var(--pico-mark-background-color);
+}
+
+.badge.approved {
+    background: var(--pico-ins-color);
+    color: white;
+}
+
+.badge.rejected,
+.badge.reversed {
+    background: var(--pico-del-color);
+    color: white;
+}
+
+.review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin-top: 0.5rem;
+}
+
+.review-actions form {
+    margin: 0;
+}
+
+.review-actions .reject-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex: 1 1 20rem;
+}
+
+.review-actions .reject-form input[type="text"] {
+    margin-bottom: 0;
+}
+
+.review-actions button {
+    margin-bottom: 0;
+    white-space: nowrap;
 }
 
 footer.container {
     opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+    header.container nav .user-name {
+        display: none;
+    }
 }

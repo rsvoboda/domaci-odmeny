@@ -1,0 +1,17 @@
+{#if history.isEmpty()}
+<p>Zatím žádné zápisy.</p>
+{#else}
+<ul class="history-list">
+    {#for item in history}
+    <li class="history-item">
+        <div class="history-line">
+            <strong>{item.taskName}</strong>
+            <span class="reward">{item.rewardText}</span>
+        </div>
+        <div class="meta">{item.whenText} · <span class="badge {item.statusKind}">{item.statusLabel}</span></div>
+        {#if item.note}<div class="note">{item.note}</div>{/if}
+        {#if item.rejectionReason}<div class="rejection">Důvod: {item.rejectionReason}</div>{/if}
+    </li>
+    {/for}
+</ul>
+{/if}

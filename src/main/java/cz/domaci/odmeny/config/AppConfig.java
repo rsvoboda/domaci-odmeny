@@ -11,14 +11,20 @@ import java.util.Optional;
 @ConfigMapping(prefix = "app")
 public interface AppConfig {
 
-    @WithDefault("Domaci odmeny")
+    @WithDefault("Domácí odměny")
     String name();
 
     @WithDefault("default")
     String householdId();
 
-    @WithDefault("Nase domacnost")
+    @WithDefault("Naše domácnost")
     String householdName();
+
+    @WithDefault("CZK")
+    String currency();
+
+    @WithDefault("Europe/Prague")
+    String timezone();
 
     DynamoDb dynamodb();
 
@@ -28,8 +34,17 @@ public interface AppConfig {
 
     interface Seed {
 
+        /**
+         * Seed development members. Never enable in production.
+         */
         @WithDefault("false")
         boolean enabled();
+
+        /**
+         * Seed the household record and the initial chore catalog when missing.
+         */
+        @WithDefault("false")
+        boolean catalog();
     }
 
     interface DevAuth {

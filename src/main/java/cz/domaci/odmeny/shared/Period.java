@@ -31,6 +31,18 @@ public record Period(int year, int month) implements Comparable<Period> {
         return from(Instant.now(), zone);
     }
 
+    /**
+     * Parses the stable {@code yyyy-MM} form used in DynamoDB keys.
+     */
+    public static Period parse(String value) {
+        if (value == null || value.length() != 7 || value.charAt(4) != '-') {
+            throw new IllegalArgumentException("Invalid period: " + value);
+        }
+        int year = Integer.parseInt(value.substring(0, 4));
+        int month = Integer.parseInt(value.substring(5, 7));
+        return new Period(year, month);
+    }
+
     public ZonedDateTime start(ZoneId zone) {
         return ZonedDateTime.of(year, month, 1, 0, 0, 0, 0, zone);
     }

@@ -8,7 +8,7 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.containsString;
 
 @QuarkusTest
-class HomePageTest {
+class HomePageTest extends AbstractWebTest {
 
     @Test
     void anonymousRequestIsRejected() {
@@ -20,23 +20,46 @@ class HomePageTest {
 
     @Test
     @TestSecurity(user = "dev-child-1", roles = "children")
-    void childSeesTheProtectedHomePage() {
+    void childSeesChoresAndCurrentTotal() {
         given()
                 .when().get("/")
                 .then()
                 .statusCode(200)
-                .body(containsString("Ahoj"))
-                .body(containsString("Dítě"))
-                .body(containsString("Slice 1"));
+                .body(containsString("Co jsi udělal?"))
+                .body(containsString("Odpadky"))
+                .body(containsString("Myčka"))
+                .body(containsString("Vysávání"))
+                .body(containsString("Dítě 1"))
+                .body(containsString("50 Kč"));
     }
 
     @Test
     @TestSecurity(user = "dev-parent-1", roles = "parents")
-    void parentSeesTheProtectedHomePage() {
+    void parentSeesApprovalQueueAndChildTotals() {
         given()
                 .when().get("/")
                 .then()
                 .statusCode(200)
-                .body(containsString("Rodič"));
+                .body(containsString("Čeká na schválení"))
+                .body(containsString("Děti tento měsíc"))
+                .body(containsString("Dítě 1"))
+                .body(containsString("Dítě 2"))
+                .body(containsString("50 Kč"));
+    }
+
+    @Test
+    @TestSecurity(user = "dev-child-1", roles = "children")
+    void childCannotOpenTheApprovalQueue() {
+        given()
+                .when().get("/approvals")
+                .then().statusCode(403);
+    }
+
+    @Test
+    @TestSecurity(user = "dev-parent-1", roles = "parents")
+    void parentCannotOpenChildHistory() {
+        given()
+                .when().get("/history")
+                .then().statusCode(403);
     }
 }

@@ -263,6 +263,7 @@ Resources:
           OIDC_CLIENT_SECRET: !GetAtt UserPoolClient.ClientSecret
           OIDC_SESSION_SECRET: !Ref SessionSecret
           HOUSEHOLD_ID: default
+          SEED_CATALOG: "true"
           MEMBERS_TABLE: !Ref MembersTable
           TASKS_TABLE: !Ref TasksTable
           ACTIVITY_TABLE: !Ref ActivityTable
