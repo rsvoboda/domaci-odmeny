@@ -9,6 +9,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
@@ -68,6 +70,21 @@ public class DynamoMemberRepository implements MemberRepository {
         } while (lastKey != null && !lastKey.isEmpty());
 
         return members;
+    }
+
+    @Override
+    public Optional<Member> findMember(String householdId, String memberId) {
+        GetItemResponse response = client.getItem(GetItemRequest.builder()
+                .tableName(tableName())
+                .key(Map.of(
+                        ATTR_PK, AttributeValue.fromS(householdPk(householdId)),
+                        ATTR_SK, AttributeValue.fromS("MEMBER#" + memberId)))
+                .build());
+
+        if (!response.hasItem() || response.item().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(toMember(response.item()));
     }
 
     @Override

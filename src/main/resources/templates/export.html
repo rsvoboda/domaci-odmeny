@@ -1,0 +1,46 @@
+{#include layout}
+{#title}Export — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Export dat</h1>
+    <p>Záloha domácnosti ve strojově čitelném formátu.</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{#else}
+<article>
+    <header><strong>Stav dat</strong></header>
+    <dl class="earnings">
+        <dt>Členové</dt>
+        <dd>{memberCount}</dd>
+        <dt>Práce</dt>
+        <dd>{taskCount}</dd>
+        <dt>Zápisy práce</dt>
+        <dd>{completionCount}</dd>
+        <dt>Pohyby v ledgeru</dt>
+        <dd>{ledgerCount}</dd>
+        <dt>Výpisy</dt>
+        <dd>{statementCount}</dd>
+        <dt>Čeká na schválení</dt>
+        <dd>{pendingCount}</dd>
+    </dl>
+</article>
+{/if}
+
+<article>
+    <header><strong>Stáhnout</strong></header>
+    <ul>
+        <li><a href="/export/data.json">Kompletní data domácnosti (JSON)</a></li>
+        <li><a href="/export/ledger.csv">Ledger (CSV)</a></li>
+        <li><a href="/export/statements.csv">Měsíční výpisy (CSV)</a></li>
+    </ul>
+    <footer>
+        <small>Částky v CSV jsou v haléřích, takže export zůstává přesný.</small>
+    </footer>
+</article>
+{/body}
+{/include}

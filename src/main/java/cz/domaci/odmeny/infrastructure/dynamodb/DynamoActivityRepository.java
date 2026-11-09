@@ -11,12 +11,20 @@ import cz.domaci.odmeny.ledger.LedgerEntryType;
 import cz.domaci.odmeny.ledger.LedgerRepository;
 import cz.domaci.odmeny.shared.Money;
 import cz.domaci.odmeny.shared.Period;
+import cz.domaci.odmeny.statement.Statement;
+import cz.domaci.odmeny.statement.StatementConflictException;
+import cz.domaci.odmeny.statement.StatementRepository;
+import cz.domaci.odmeny.statement.StatementStatus;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.Delete;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.Put;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
@@ -33,25 +41,28 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * DynamoDB adapter for completions, the pending queue and the append-only
- * ledger.
+ * DynamoDB adapter for completions, the pending queue, the append-only ledger
+ * and monthly statements.
  *
  * <p>Key layout (ADR-0004):
  * <ul>
  *   <li>Activity: {@code PK = MEMBER#<id>},
  *       {@code SK = PERIOD#<yyyy-mm>#<TYPE>#<padded-epoch-millis>#<id>}</li>
+ *   <li>Statement: {@code PK = MEMBER#<id>},
+ *       {@code SK = PERIOD#<yyyy-mm>#STATEMENT#<id>}</li>
  *   <li>Pending: {@code PK = PENDING},
  *       {@code SK = CREATED#<padded-epoch-millis>#<completionId>}</li>
  * </ul>
  *
- * <p>Every state change is a DynamoDB transaction with a condition expression,
- * which makes approval and rejection idempotent.
+ * <p>Every state change is a DynamoDB transaction or a conditional write, which
+ * makes approval, closing and payout idempotent.
  */
 @ApplicationScoped
-public class DynamoActivityRepository implements CompletionRepository, LedgerRepository {
+public class DynamoActivityRepository implements CompletionRepository, LedgerRepository, StatementRepository {
 
     private static final String ENTITY_COMPLETION = "COMPLETION";
     private static final String ENTITY_LEDGER = "LEDGER";
+    private static final String ENTITY_STATEMENT = "STATEMENT";
     private static final String PENDING_PK = "PENDING";
 
     private final DynamoDbClient client;
@@ -62,6 +73,8 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
         this.client = client;
         this.config = config;
     }
+
+    // CompletionRepository ---------------------------------------------------
 
     @Override
     public void createPending(Completion completion, PendingCompletion pending) {
@@ -137,11 +150,10 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
     }
 
     @Override
-    public List<LedgerEntry> listEntries(String memberId, Period period) {
-        String prefix = "PERIOD#" + period.value() + "#";
-        return query(activityTable(), memberPk(memberId), prefix).stream()
-                .filter(item -> ENTITY_LEDGER.equals(string(item, "entityType")))
-                .map(DynamoActivityRepository::toLedgerEntry)
+    public List<Completion> listCompletions(String memberId) {
+        return query(activityTable(), memberPk(memberId), null).stream()
+                .filter(item -> ENTITY_COMPLETION.equals(string(item, "entityType")))
+                .map(DynamoActivityRepository::toCompletion)
                 .toList();
     }
 
@@ -159,6 +171,114 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
                 .findFirst();
     }
 
+    // LedgerRepository -------------------------------------------------------
+
+    @Override
+    public List<LedgerEntry> listEntries(String memberId, Period period) {
+        String prefix = "PERIOD#" + period.value() + "#";
+        return query(activityTable(), memberPk(memberId), prefix).stream()
+                .filter(item -> ENTITY_LEDGER.equals(string(item, "entityType")))
+                .map(DynamoActivityRepository::toLedgerEntry)
+                .toList();
+    }
+
+    @Override
+    public List<LedgerEntry> listEntries(String memberId) {
+        return query(activityTable(), memberPk(memberId), null).stream()
+                .filter(item -> ENTITY_LEDGER.equals(string(item, "entityType")))
+                .map(DynamoActivityRepository::toLedgerEntry)
+                .toList();
+    }
+
+    @Override
+    public void addEntry(LedgerEntry entry) {
+        try {
+            client.putItem(PutItemRequest.builder()
+                    .tableName(activityTable())
+                    .item(ledgerItem(entry))
+                    .conditionExpression("attribute_not_exists(PK)")
+                    .build());
+        } catch (ConditionalCheckFailedException e) {
+            throw new IllegalStateException("Ledger entry already exists: " + entry.id(), e);
+        }
+    }
+
+    // StatementRepository ----------------------------------------------------
+
+    @Override
+    public Optional<Statement> find(String memberId, Period period) {
+        String statementId = Statement.idFor(memberId, period);
+        GetItemResponse response = client.getItem(GetItemRequest.builder()
+                .tableName(activityTable())
+                .key(Map.of(
+                        "PK", AttributeValue.fromS(memberPk(memberId)),
+                        "SK", AttributeValue.fromS(statementSk(period, statementId))))
+                .build());
+
+        if (!response.hasItem() || response.item().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(toStatement(response.item()));
+    }
+
+    @Override
+    public List<Statement> listStatements(String memberId) {
+        return query(activityTable(), memberPk(memberId), "PERIOD#").stream()
+                .filter(item -> ENTITY_STATEMENT.equals(string(item, "entityType")))
+                .map(DynamoActivityRepository::toStatement)
+                .toList();
+    }
+
+    @Override
+    public void close(Statement statement) {
+        try {
+            client.putItem(PutItemRequest.builder()
+                    .tableName(activityTable())
+                    .item(statementItem(statement))
+                    .conditionExpression("attribute_not_exists(PK) OR #status = :open")
+                    .expressionAttributeNames(Map.of("#status", "status"))
+                    .expressionAttributeValues(Map.of(":open", AttributeValue.fromS(StatementStatus.OPEN.name())))
+                    .build());
+        } catch (ConditionalCheckFailedException e) {
+            throw new StatementConflictException("The month is already closed", e);
+        }
+    }
+
+    @Override
+    public void reopen(Statement statement) {
+        try {
+            client.putItem(PutItemRequest.builder()
+                    .tableName(activityTable())
+                    .item(statementItem(statement))
+                    .conditionExpression(
+                            "attribute_exists(PK) AND (#status = :closed OR #status = :paid)")
+                    .expressionAttributeNames(Map.of("#status", "status"))
+                    .expressionAttributeValues(Map.of(
+                            ":closed", AttributeValue.fromS(StatementStatus.CLOSED.name()),
+                            ":paid", AttributeValue.fromS(StatementStatus.PAID.name())))
+                    .build());
+        } catch (ConditionalCheckFailedException e) {
+            throw new StatementConflictException("The month is not closed", e);
+        }
+    }
+
+    @Override
+    public void markPaid(Statement statement, LedgerEntry payout) {
+        Put statementPut = Put.builder()
+                .tableName(activityTable())
+                .item(statementItem(statement))
+                .conditionExpression("attribute_exists(PK) AND #status = :closed")
+                .expressionAttributeNames(Map.of("#status", "status"))
+                .expressionAttributeValues(Map.of(":closed", AttributeValue.fromS(StatementStatus.CLOSED.name())))
+                .build();
+
+        transactStatements(
+                TransactWriteItem.builder().put(statementPut).build(),
+                put(activityTable(), ledgerItem(payout)));
+    }
+
+    // Helpers ----------------------------------------------------------------
+
     private void transact(TransactWriteItem... items) {
         try {
             client.transactWriteItems(TransactWriteItemsRequest.builder()
@@ -167,6 +287,17 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
         } catch (TransactionCanceledException e) {
             throw new CompletionConflictException(
                     "The completion was already reviewed or changed concurrently", e);
+        }
+    }
+
+    private void transactStatements(TransactWriteItem... items) {
+        try {
+            client.transactWriteItems(TransactWriteItemsRequest.builder()
+                    .transactItems(items)
+                    .build());
+        } catch (TransactionCanceledException e) {
+            throw new StatementConflictException(
+                    "The statement was already changed concurrently", e);
         }
     }
 
@@ -273,6 +404,31 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
         return item;
     }
 
+    private static Map<String, AttributeValue> statementItem(Statement statement) {
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("PK", AttributeValue.fromS(memberPk(statement.memberId())));
+        item.put("SK", AttributeValue.fromS(statementSk(statement.period(), statement.id())));
+        item.put("entityType", AttributeValue.fromS(ENTITY_STATEMENT));
+        item.put("id", AttributeValue.fromS(statement.id()));
+        item.put("householdId", AttributeValue.fromS(statement.householdId()));
+        item.put("memberId", AttributeValue.fromS(statement.memberId()));
+        item.put("period", AttributeValue.fromS(statement.period().value()));
+        item.put("baseAllowanceMinor", AttributeValue.fromN(Long.toString(statement.baseAllowance().minor())));
+        item.put("taskBonusMinor", AttributeValue.fromN(Long.toString(statement.taskBonus().minor())));
+        item.put("adjustmentsMinor", AttributeValue.fromN(Long.toString(statement.adjustments().minor())));
+        item.put("totalMinor", AttributeValue.fromN(Long.toString(statement.total().minor())));
+        item.put("paidMinor", AttributeValue.fromN(Long.toString(statement.paid().minor())));
+        item.put("status", AttributeValue.fromS(statement.status().name()));
+        putInstant(item, "closedAtEpochMilli", statement.closedAt());
+        putString(item, "closedBy", statement.closedBy());
+        putInstant(item, "paidAtEpochMilli", statement.paidAt());
+        putString(item, "paidBy", statement.paidBy());
+        putInstant(item, "reopenedAtEpochMilli", statement.reopenedAt());
+        putString(item, "reopenedBy", statement.reopenedBy());
+        putString(item, "reopenReason", statement.reopenReason());
+        return item;
+    }
+
     private static Map<String, AttributeValue> pendingItem(PendingCompletion pending) {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("PK", AttributeValue.fromS(PENDING_PK));
@@ -325,6 +481,27 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
                 instant(item, "createdAtEpochMilli"));
     }
 
+    private static Statement toStatement(Map<String, AttributeValue> item) {
+        return new Statement(
+                string(item, "id"),
+                string(item, "householdId"),
+                string(item, "memberId"),
+                Period.parse(string(item, "period")),
+                Money.minor(Long.parseLong(item.get("baseAllowanceMinor").n())),
+                Money.minor(Long.parseLong(item.get("taskBonusMinor").n())),
+                Money.minor(Long.parseLong(item.get("adjustmentsMinor").n())),
+                Money.minor(Long.parseLong(item.get("totalMinor").n())),
+                Money.minor(Long.parseLong(item.get("paidMinor").n())),
+                StatementStatus.valueOf(string(item, "status")),
+                instant(item, "closedAtEpochMilli"),
+                string(item, "closedBy"),
+                instant(item, "paidAtEpochMilli"),
+                string(item, "paidBy"),
+                instant(item, "reopenedAtEpochMilli"),
+                string(item, "reopenedBy"),
+                string(item, "reopenReason"));
+    }
+
     private static PendingCompletion toPendingCompletion(Map<String, AttributeValue> item) {
         return new PendingCompletion(
                 string(item, "completionId"),
@@ -366,6 +543,10 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
                 + "#" + entry.id();
     }
 
+    private static String statementSk(Period period, String statementId) {
+        return "PERIOD#" + period.value() + "#" + ENTITY_STATEMENT + "#" + statementId;
+    }
+
     private static String pendingSk(Instant createdAt, String completionId) {
         return "CREATED#" + paddedMillis(createdAt) + "#" + completionId;
     }
@@ -381,6 +562,12 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
     private static void putString(Map<String, AttributeValue> item, String name, String value) {
         if (value != null) {
             item.put(name, AttributeValue.fromS(value));
+        }
+    }
+
+    private static void putInstant(Map<String, AttributeValue> item, String name, Instant value) {
+        if (value != null) {
+            item.put(name, AttributeValue.fromN(Long.toString(value.toEpochMilli())));
         }
     }
 

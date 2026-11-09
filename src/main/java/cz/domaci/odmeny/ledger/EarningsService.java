@@ -32,7 +32,10 @@ public class EarningsService {
 
         Money bonus = Money.ZERO;
         for (LedgerEntry entry : entries) {
-            if (entry.type() != LedgerEntryType.BASE_ALLOWANCE) {
+            // Payouts reduce the balance due, not the amount earned, so the
+            // child's home total stays the month's earnings.
+            if (entry.type() != LedgerEntryType.BASE_ALLOWANCE
+                    && entry.type() != LedgerEntryType.PAYOUT) {
                 bonus = bonus.plus(entry.amount());
             }
         }

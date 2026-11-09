@@ -10,7 +10,7 @@ a task-assignment or reminder system.
 - Product proposal: [`docs/proposal.md`](docs/proposal.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/README.md)
 
-## Current status — Slice 2 (first vertical flow)
+## Current status — Slice 3 (money workflow)
 
 Implemented:
 
@@ -24,16 +24,24 @@ Implemented:
   month's base + bonus + total, browse history and rejection reasons
 - Parent flow: approval queue, approve (credits the reward) or reject with a
   required reason
-- Append-only ledger entries written atomically with the completion state
+- Monthly statements: base, grouped chore rewards, corrections, total, paid and
+  balance due, with `OPEN` / `CLOSED` / `PAID` status
+- Parent corrections (positive or negative) with a required reason
+- Close a month (blocked while completions are pending), mark it paid, and
+  reopen it with a reason
+- Late work after a close automatically belongs to the next open month
+- Parent-only export: full JSON backup plus ledger and statement CSV files
+- Append-only ledger entries written atomically with the completion state and
+  with the payout
 - DynamoDB adapters using transactions with condition expressions, so double
-  approval cannot credit twice
+  approval or double payout cannot credit twice
 - SAM template: Cognito, four DynamoDB tables, Lambda + Function URL, log
   retention, alarms and a $1 budget
-- 42 hermetic tests: money/period primitives, domain workflow, web flow, CSRF,
-  authorization
+- 71 hermetic tests: money/period primitives, domain workflow, statements,
+  export, web flow, CSRF, authorization, and UTF-8 form input
 
-Not implemented yet: monthly statements, corrections, closing a month, payouts,
-exports, PWA. See the delivery plan in the proposal.
+Not implemented yet: audit history view, PWA, settings UI. See the delivery
+plan in the proposal.
 
 ## Prerequisites
 
@@ -69,7 +77,7 @@ The Maven wrapper is committed, so no local Maven installation is required.
 The application still starts if DynamoDB Local is not running; the home page
 shows a warning banner instead of the data.
 
-### The Slice 2 flow
+### The chore flow (Slice 2)
 
 1. Log in as `child1`. The home page lists the three chores. Tap one, optionally
    add a note, and submit.
@@ -80,6 +88,25 @@ shows a warning banner instead of the data.
 
 The seed chores require approval. Setting `requiresApproval` to `false` on a
 chore credits it immediately without a queue item.
+
+### The Slice 3 flow
+
+1. Log in as `parent1` and open **Výplaty**. The overview shows each child's
+   current and previous month with status and balance.
+2. Open a child's statement. It shows the base amount, rewards grouped by chore,
+   corrections, total earned, paid and balance due.
+3. Add a correction with a required reason (for example `20,50` or `-10`). The
+   amount accepts Czech decimal commas and an optional `Kč` suffix.
+4. **Uzavřít měsíc** snapshots the month. Closing is refused while the child has
+   pending completions or for a future month.
+5. **Označit jako vyplaceno** records a payout for the full remaining balance
+   and marks the month `PAID` in one transaction.
+6. **Znovu otevřít měsíc** reopens a closed or paid month with a required reason.
+   The base snapshot is kept; later corrections are new ledger entries. A later
+   close recomputes the totals from the ledger.
+7. Work logged after a month is closed is assigned to the next open month.
+8. **Export** downloads the full household JSON, the ledger CSV or the statement
+   CSV. CSV amounts are in haléře so the export stays exact.
 
 ### Development login
 
@@ -97,8 +124,9 @@ The tests are hermetic. Web tests use `@TestSecurity`, and an in-memory
 `@Alternative` implementation of every repository replaces DynamoDB, so neither
 DynamoDB nor Cognito is needed.
 
-DynamoDB transaction behavior (condition expressions, idempotent approval) is
-smoke-tested against DynamoDB Local through the dev profile.
+DynamoDB transaction behavior (condition expressions, idempotent approval, the
+payout transaction, close/reopen conditions) is smoke-tested against DynamoDB
+Local through the dev profile.
 
 ## Build
 
@@ -233,6 +261,7 @@ src/main/java/cz/domaci/odmeny/
 ├── task/              # chore catalog
 ├── completion/        # logging, approval workflow, pending queue
 ├── ledger/            # append-only ledger entries and earnings
+├── statement/         # monthly statements, close/payout/reopen, corrections
 ├── security/          # dev-only login mechanism and resources
 ├── infrastructure/
 │   └── dynamodb/      # client, repository adapters, local bootstrap
@@ -265,8 +294,21 @@ compose.yaml           # DynamoDB Local for development
   so a double approval or a lost race fails with a conflict instead of crediting
   twice.
 - **The ledger is append-only.** Reward entries use a deterministic id
-  (`reward-<completionId>`), and corrections in later slices will add new
-  entries rather than edit old ones.
+  (`reward-<completionId>`); corrections, reversals and payouts add new entries
+  rather than editing old ones.
+- **Open months are live; closed months are snapshots.** An open statement is
+  computed from the ledger. Closing stores base, task bonus, adjustments, total
+  and paid. Corrections are blocked in a closed month until a parent reopens it
+  with a reason; reopening keeps the base snapshot and re-close recomputes from
+  the ledger.
+- **Payout is one transaction.** Marking a month paid writes a negative payout
+  ledger entry for the full remaining balance and flips the statement to `PAID`
+  together, guarded by a condition that the statement is still `CLOSED`.
+- **Late work moves forward.** If a child logs a chore after their month was
+  closed, the completion is assigned to the next open month. Approving a
+  completion whose month was closed behind the service is rejected.
+- **Export is exact.** JSON is the full backup; CSV amounts stay in haléře, and
+  Czech text is preserved as UTF-8.
 - **Tables are retained** when the stack is deleted, to protect financial
   history. Delete them manually if you really want a clean slate.
 
@@ -280,5 +322,7 @@ compose.yaml           # DynamoDB Local for development
 - Keycloak Dev Services is not used. The dev login mechanism keeps local
   startup fast and container-free while exercising the same domain and UI code
   as production.
-- PWA manifest, offline behavior, exports, audit view and the runbook are
-  later slices.
+- Marking a month paid records one payout for the full remaining balance;
+  partial payouts are not supported in v1.
+- The audit history view, PWA manifest, offline behavior and the operational
+  runbook are later slices.

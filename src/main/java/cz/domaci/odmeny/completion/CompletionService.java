@@ -1,6 +1,8 @@
 package cz.domaci.odmeny.completion;
 
 import cz.domaci.odmeny.household.HouseholdService;
+import cz.domaci.odmeny.household.MonthClosedException;
+import cz.domaci.odmeny.household.PeriodGate;
 import cz.domaci.odmeny.ledger.LedgerEntry;
 import cz.domaci.odmeny.ledger.LedgerEntryType;
 import cz.domaci.odmeny.member.Member;
@@ -28,12 +30,15 @@ public class CompletionService {
     private final CompletionRepository completions;
     private final TaskService tasks;
     private final HouseholdService household;
+    private final PeriodGate periodGate;
 
     @Inject
-    public CompletionService(CompletionRepository completions, TaskService tasks, HouseholdService household) {
+    public CompletionService(CompletionRepository completions, TaskService tasks, HouseholdService household,
+            PeriodGate periodGate) {
         this.completions = completions;
         this.tasks = tasks;
         this.household = household;
+        this.periodGate = periodGate;
     }
 
     /**
@@ -52,7 +57,8 @@ public class CompletionService {
 
         Instant now = household.now();
         String normalizedNote = normalize(note);
-        Period period = Period.from(now, household.zone());
+        // Late work after a close belongs to the next open month (proposal 5.5).
+        Period period = periodGate.nextOpen(child.id(), Period.from(now, household.zone()));
         String completionId = UUID.randomUUID().toString();
 
         boolean requiresApproval = task.requiresApproval();
@@ -112,6 +118,11 @@ public class CompletionService {
         PendingCompletion pending = completions.findPending(completionId)
                 .orElseThrow(() -> new CompletionConflictException(
                         "Completion is no longer pending: " + completionId));
+
+        if (!periodGate.isOpen(pending.memberId(), pending.period())) {
+            throw new MonthClosedException(
+                    "The completion belongs to a closed month: " + pending.period().value());
+        }
 
         Instant now = household.now();
         Completion approved = new Completion(

@@ -1,0 +1,130 @@
+{#include layout}
+{#title}{memberName} — {appName}{/title}
+{#body}
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{#else}
+<hgroup>
+    <h1>{detail.statement.memberName}</h1>
+    <p>
+        {detail.statement.periodLabel} ·
+        <span class="badge {detail.statement.statusKind}">{detail.statement.statusLabel}</span>
+    </p>
+</hgroup>
+
+<article>
+    <header><strong>Souhrn</strong></header>
+    <dl class="earnings">
+        <dt>Základní odměna</dt>
+        <dd>{detail.statement.baseText}</dd>
+        <dt>Odměny za práci</dt>
+        <dd>{detail.statement.taskBonusText}</dd>
+        <dt>Úpravy</dt>
+        <dd>{detail.statement.adjustmentsText}</dd>
+        <dt><strong>Celkem</strong></dt>
+        <dd><strong>{detail.statement.totalText}</strong></dd>
+        <dt>Vyplaceno</dt>
+        <dd>{detail.statement.paidText}</dd>
+        <dt><strong>Zbývá vyplatit</strong></dt>
+        <dd><strong>{detail.statement.balanceText}</strong></dd>
+    </dl>
+</article>
+
+{#if detail.taskLines.size > 0}
+<article>
+    <header><strong>Odměny podle práce</strong></header>
+    <ul class="statement-lines">
+        {#for line in detail.taskLines}
+        <li>
+            <span>{line.label}{#if line.count > 1} <span class="meta">× {line.count}</span>{/if}</span>
+            <span class="reward">{line.amountText}</span>
+        </li>
+        {/for}
+    </ul>
+</article>
+{/if}
+
+{#if detail.adjustmentLines.size > 0}
+<article>
+    <header><strong>Úpravy</strong></header>
+    <ul class="statement-lines">
+        {#for line in detail.adjustmentLines}
+        <li>
+            <span><strong>{line.label}</strong>{#if line.description} <span class="meta">{line.description}</span>{/if}</span>
+            <span class="reward">{line.amountText}</span>
+        </li>
+        {/for}
+    </ul>
+</article>
+{/if}
+
+{#if detail.payoutLines.size > 0}
+<article>
+    <header><strong>Výplaty</strong></header>
+    <ul class="statement-lines">
+        {#for line in detail.payoutLines}
+        <li>
+            <span>{line.label}{#if line.description} <span class="meta">{line.description}</span>{/if}</span>
+            <span class="reward">{line.amountText}</span>
+        </li>
+        {/for}
+    </ul>
+</article>
+{/if}
+
+{#if detail.statement.reopenReason}
+<article class="notice">
+    <header><strong>Měsíc byl znovu otevřen</strong></header>
+    <p>Důvod: {detail.statement.reopenReason}</p>
+</article>
+{/if}
+
+{#if isParent}
+<article>
+    <header><strong>Akce</strong></header>
+
+    {#if detail.statement.open}
+    <form method="post" action="/statements/{detail.statement.memberId}/{detail.statement.periodValue}/corrections"
+          class="stacked-form">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <label>Úprava (Kč)
+            <input type="text" name="amount" inputmode="decimal" placeholder="např. 20 nebo -10,50" required>
+        </label>
+        <label>Důvod
+            <input type="text" name="reason" maxlength="500" required>
+        </label>
+        <button type="submit">Zapsat úpravu</button>
+    </form>
+    <form method="post" action="/statements/{detail.statement.memberId}/{detail.statement.periodValue}/close">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <button type="submit" class="secondary">Uzavřít měsíc</button>
+    </form>
+    {/if}
+
+    {#if detail.statement.closed}
+    <form method="post" action="/statements/{detail.statement.memberId}/{detail.statement.periodValue}/paid">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <button type="submit">Označit jako vyplaceno</button>
+    </form>
+    {/if}
+
+    {#if detail.statement.closed || detail.statement.paid}
+    <form method="post" action="/statements/{detail.statement.memberId}/{detail.statement.periodValue}/reopen"
+          class="stacked-form">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <label>Důvod znovuotevření
+            <input type="text" name="reason" maxlength="500" required>
+        </label>
+        <button type="submit" class="secondary outline">Znovu otevřít měsíc</button>
+    </form>
+    {/if}
+</article>
+{/if}
+
+<p><a href="/statements">Zpět na výplaty</a></p>
+{/if}
+{/body}
+{/include}

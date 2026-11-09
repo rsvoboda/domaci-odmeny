@@ -13,6 +13,9 @@ import cz.domaci.odmeny.member.MemberRepository;
 import cz.domaci.odmeny.member.MemberRole;
 import cz.domaci.odmeny.shared.Money;
 import cz.domaci.odmeny.shared.Period;
+import cz.domaci.odmeny.statement.Statement;
+import cz.domaci.odmeny.statement.StatementConflictException;
+import cz.domaci.odmeny.statement.StatementRepository;
 import cz.domaci.odmeny.task.Task;
 import cz.domaci.odmeny.task.TaskRepository;
 import jakarta.annotation.PostConstruct;
@@ -34,7 +37,7 @@ import java.util.Optional;
 @Alternative
 @Priority(1)
 public class InMemoryStore implements MemberRepository, HouseholdRepository, TaskRepository,
-        CompletionRepository, LedgerRepository {
+        CompletionRepository, LedgerRepository, StatementRepository {
 
     public static final String HOUSEHOLD_ID = "default";
     public static final String PARENT_1 = "parent-1";
@@ -46,6 +49,7 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     private final Map<String, Completion> completions = new LinkedHashMap<>();
     private final Map<String, LedgerEntry> ledger = new LinkedHashMap<>();
     private final Map<String, PendingCompletion> pending = new LinkedHashMap<>();
+    private final Map<String, Statement> statements = new LinkedHashMap<>();
     private Household household;
 
     @PostConstruct
@@ -59,6 +63,7 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         completions.clear();
         ledger.clear();
         pending.clear();
+        statements.clear();
 
         household = new Household(HOUSEHOLD_ID, "Naše domácnost", "CZK", "Europe/Prague");
 
@@ -101,6 +106,14 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         return Optional.ofNullable(completions.get(completionKey(memberId, completionId)));
     }
 
+    public synchronized Optional<Statement> statement(String memberId, Period period) {
+        return Optional.ofNullable(statements.get(statementKey(memberId, period)));
+    }
+
+    public synchronized List<Statement> statementItems() {
+        return new ArrayList<>(statements.values());
+    }
+
     // MemberRepository -------------------------------------------------------
 
     @Override
@@ -108,6 +121,12 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         return members.values().stream()
                 .filter(member -> member.householdId().equals(householdId))
                 .toList();
+    }
+
+    @Override
+    public synchronized Optional<Member> findMember(String householdId, String memberId) {
+        return Optional.ofNullable(members.get(memberId))
+                .filter(member -> member.householdId().equals(householdId));
     }
 
     @Override
@@ -210,6 +229,13 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     }
 
     @Override
+    public synchronized List<Completion> listCompletions(String memberId) {
+        return completions.values().stream()
+                .filter(completion -> completion.memberId().equals(memberId))
+                .toList();
+    }
+
+    @Override
     public synchronized List<PendingCompletion> listPending() {
         return new ArrayList<>(pending.values());
     }
@@ -229,7 +255,71 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
                 .toList();
     }
 
+    @Override
+    public synchronized List<LedgerEntry> listEntries(String memberId) {
+        return ledger.values().stream()
+                .filter(entry -> entry.memberId().equals(memberId))
+                .toList();
+    }
+
+    @Override
+    public synchronized void addEntry(LedgerEntry entry) {
+        if (ledger.containsKey(entry.id())) {
+            throw new IllegalStateException("Ledger entry already exists: " + entry.id());
+        }
+        ledger.put(entry.id(), entry);
+    }
+
+    // StatementRepository ----------------------------------------------------
+
+    @Override
+    public synchronized Optional<Statement> find(String memberId, Period period) {
+        return Optional.ofNullable(statements.get(statementKey(memberId, period)));
+    }
+
+    @Override
+    public synchronized List<Statement> listStatements(String memberId) {
+        return statements.values().stream()
+                .filter(statement -> statement.memberId().equals(memberId))
+                .toList();
+    }
+
+    @Override
+    public synchronized void close(Statement statement) {
+        Statement existing = statements.get(statementKey(statement.memberId(), statement.period()));
+        if (existing != null && !existing.isOpen()) {
+            throw new StatementConflictException("The month is already closed");
+        }
+        statements.put(statementKey(statement.memberId(), statement.period()), statement);
+    }
+
+    @Override
+    public synchronized void reopen(Statement statement) {
+        Statement existing = statements.get(statementKey(statement.memberId(), statement.period()));
+        if (existing == null || existing.isOpen()) {
+            throw new StatementConflictException("The month is not closed");
+        }
+        statements.put(statementKey(statement.memberId(), statement.period()), statement);
+    }
+
+    @Override
+    public synchronized void markPaid(Statement statement, LedgerEntry payout) {
+        Statement existing = statements.get(statementKey(statement.memberId(), statement.period()));
+        if (existing == null || !existing.isClosed()) {
+            throw new StatementConflictException("The month is not closed");
+        }
+        if (ledger.containsKey(payout.id())) {
+            throw new StatementConflictException("The payout was already written");
+        }
+        statements.put(statementKey(statement.memberId(), statement.period()), statement);
+        ledger.put(payout.id(), payout);
+    }
+
     private static String completionKey(String memberId, String completionId) {
         return memberId + "|" + completionId;
+    }
+
+    private static String statementKey(String memberId, Period period) {
+        return memberId + "|" + period.value();
     }
 }

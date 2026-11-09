@@ -5,6 +5,7 @@ import cz.domaci.odmeny.completion.CompletionNotFoundException;
 import cz.domaci.odmeny.completion.CompletionService;
 import cz.domaci.odmeny.completion.InvalidCompletionException;
 import cz.domaci.odmeny.household.HouseholdService;
+import cz.domaci.odmeny.household.MonthClosedException;
 import cz.domaci.odmeny.member.Member;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -110,6 +111,8 @@ public class ApprovalResource {
             return redirect("/approvals?flash=missing");
         } catch (CompletionConflictException e) {
             return redirect("/approvals?flash=conflict");
+        } catch (MonthClosedException e) {
+            return redirect("/approvals?flash=closed-month");
         } catch (InvalidCompletionException e) {
             return redirect("/approvals?flash=invalid");
         } catch (SdkException e) {

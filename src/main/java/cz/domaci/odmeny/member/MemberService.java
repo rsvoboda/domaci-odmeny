@@ -23,6 +23,10 @@ public class MemberService {
         return repository.listByHousehold(config.householdId());
     }
 
+    public Optional<Member> findById(String memberId) {
+        return repository.findMember(config.householdId(), memberId);
+    }
+
     public Optional<Member> findByCognitoSub(String cognitoSub) {
         return repository.findByCognitoSub(config.householdId(), cognitoSub);
     }

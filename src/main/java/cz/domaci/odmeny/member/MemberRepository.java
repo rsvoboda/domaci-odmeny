@@ -11,6 +11,8 @@ public interface MemberRepository {
 
     List<Member> listByHousehold(String householdId);
 
+    Optional<Member> findMember(String householdId, String memberId);
+
     Optional<Member> findByCognitoSub(String householdId, String cognitoSub);
 
     void put(Member member);

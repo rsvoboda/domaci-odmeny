@@ -170,6 +170,66 @@ li.pending-item:last-child {
     color: white;
 }
 
+.badge.open {
+    background: var(--pico-mark-background-color);
+}
+
+.badge.closed {
+    background: var(--pico-secondary);
+    color: white;
+}
+
+.badge.paid {
+    background: var(--pico-ins-color);
+    color: white;
+}
+
+/* Statements ------------------------------------------------------------- */
+ul.statement-lines {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+ul.statement-lines li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+ul.statement-lines li:last-child {
+    border-bottom: none;
+}
+
+.table-scroll {
+    overflow-x: auto;
+}
+
+.stacked-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.stacked-form label {
+    margin-bottom: 0;
+}
+
+.stacked-form input[type="text"] {
+    margin-bottom: 0;
+}
+
+.stacked-form button {
+    align-self: flex-start;
+}
+
+article form + form {
+    margin-top: 0.75rem;
+}
+
 .review-actions {
     display: flex;
     flex-wrap: wrap;

@@ -1,0 +1,73 @@
+{#include layout}
+{#title}Výplaty — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Výplaty</h1>
+    <p>Měsíční výpisy, úpravy a výplaty dětí.</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{#else}
+
+{#if rows.isEmpty()}
+<article><p>V domácnosti zatím nejsou žádné děti.</p></article>
+{#else}
+<article>
+    <header><strong>Tento a předchozí měsíc</strong></header>
+    <div class="table-scroll">
+        <table>
+            <thead>
+            <tr>
+                <th>Dítě</th>
+                <th>Aktuální měsíc</th>
+                <th>Předchozí měsíc</th>
+            </tr>
+            </thead>
+            <tbody>
+            {#for row in rows}
+            <tr>
+                <td>{row.memberName}</td>
+                <td>
+                    <a href="/statements/{row.memberId}/{row.current.periodValue}">{row.current.periodLabel}</a><br>
+                    <strong>{row.current.balanceText}</strong>
+                    <span class="badge {row.current.statusKind}">{row.current.statusLabel}</span>
+                </td>
+                <td>
+                    <a href="/statements/{row.memberId}/{row.previous.periodValue}">{row.previous.periodLabel}</a><br>
+                    <strong>{row.previous.balanceText}</strong>
+                    <span class="badge {row.previous.statusKind}">{row.previous.statusLabel}</span>
+                </td>
+            </tr>
+            {/for}
+            </tbody>
+        </table>
+    </div>
+</article>
+{/if}
+
+{#if stored.size > 0}
+<article>
+    <header><strong>Uložené výpisy</strong></header>
+    <ul class="history-list">
+        {#for item in stored}
+        <li class="history-item">
+            <div class="history-line">
+                <a href="/statements/{item.memberId}/{item.periodValue}">
+                    <strong>{item.memberName}</strong> · {item.periodLabel}
+                </a>
+                <span class="reward">{item.balanceText}</span>
+            </div>
+            <div class="meta"><span class="badge {item.statusKind}">{item.statusLabel}</span></div>
+        </li>
+        {/for}
+    </ul>
+</article>
+{/if}
+
+{/if}
+{/body}
+{/include}

@@ -19,8 +19,11 @@
             <li><a href="/">Domů</a></li>
             {#if isParent}
             <li><a href="/approvals">Schvalování</a></li>
+            <li><a href="/statements">Výplaty</a></li>
+            <li><a href="/export">Export</a></li>
             {#else}
             <li><a href="/history">Historie</a></li>
+            <li><a href="/statements/mine">Moje odměny</a></li>
             {/if}
             <li class="user-name">{displayName}</li>
             <li><a href="/logout" role="button" class="secondary outline">Odhlásit</a></li>

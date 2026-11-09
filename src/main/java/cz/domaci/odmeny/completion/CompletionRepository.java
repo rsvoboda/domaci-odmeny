@@ -41,6 +41,11 @@ public interface CompletionRepository {
 
     List<Completion> listCompletions(String memberId, Period period);
 
+    /**
+     * All completions for a member across every period. Used by the export.
+     */
+    List<Completion> listCompletions(String memberId);
+
     List<PendingCompletion> listPending();
 
     Optional<PendingCompletion> findPending(String completionId);

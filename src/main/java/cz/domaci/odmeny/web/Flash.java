@@ -23,6 +23,15 @@ public record Flash(String text, String kind) {
             case "task" -> Optional.of(new Flash("Tato práce už není dostupná.", ERROR));
             case "invalid" -> Optional.of(new Flash("Zadané údaje nejsou platné.", ERROR));
             case "conflict" -> Optional.of(new Flash("Tato práce už byla vyřízena.", WARNING));
+            case "adjusted" -> Optional.of(new Flash("Úprava byla zapsána.", SUCCESS));
+            case "closed" -> Optional.of(new Flash("Měsíc byl uzavřen.", SUCCESS));
+            case "paid" -> Optional.of(new Flash("Výplata byla zaznamenána a měsíc označen jako vyplacený.", SUCCESS));
+            case "reopened" -> Optional.of(new Flash("Měsíc byl znovu otevřen.", WARNING));
+            case "pending" -> Optional.of(new Flash(
+                    "Měsíc nelze uzavřít, dokud jsou neschválené práce.", WARNING));
+            case "closed-month" -> Optional.of(new Flash(
+                    "Měsíc je uzavřený. Nejprve jej znovu otevřete.", ERROR));
+            case "nothing-to-pay" -> Optional.of(new Flash("Není co vyplatit.", WARNING));
             case "missing" -> Optional.of(new Flash("Práce nebyla nalezena.", ERROR));
             case "profile" -> Optional.of(new Flash("Váš účet zatím není propojen s členem domácnosti.", ERROR));
             case "storage" -> Optional.of(new Flash("Databáze není dostupná. Zkuste to prosím později.", ERROR));
