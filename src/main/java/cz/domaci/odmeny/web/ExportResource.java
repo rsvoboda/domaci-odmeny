@@ -1,5 +1,7 @@
 package cz.domaci.odmeny.web;
 
+import cz.domaci.odmeny.audit.AuditEvent;
+import cz.domaci.odmeny.audit.AuditService;
 import cz.domaci.odmeny.completion.Completion;
 import cz.domaci.odmeny.completion.CompletionRepository;
 import cz.domaci.odmeny.household.HouseholdService;
@@ -7,6 +9,7 @@ import cz.domaci.odmeny.ledger.LedgerEntry;
 import cz.domaci.odmeny.ledger.LedgerRepository;
 import cz.domaci.odmeny.member.Member;
 import cz.domaci.odmeny.member.MemberService;
+import cz.domaci.odmeny.shared.Period;
 import cz.domaci.odmeny.statement.Statement;
 import cz.domaci.odmeny.statement.StatementRepository;
 import cz.domaci.odmeny.task.TaskService;
@@ -49,6 +52,7 @@ public class ExportResource {
     private final LedgerRepository ledger;
     private final StatementRepository statements;
     private final HouseholdService household;
+    private final AuditService audits;
 
     @Inject
     @Location("export.html")
@@ -57,7 +61,7 @@ public class ExportResource {
     @Inject
     public ExportResource(PageSupport pages, MemberService members, TaskService tasks,
             CompletionRepository completions, LedgerRepository ledger, StatementRepository statements,
-            HouseholdService household) {
+            HouseholdService household, AuditService audits) {
         this.pages = pages;
         this.members = members;
         this.tasks = tasks;
@@ -65,6 +69,7 @@ public class ExportResource {
         this.ledger = ledger;
         this.statements = statements;
         this.household = household;
+        this.audits = audits;
     }
 
     @GET
@@ -73,15 +78,18 @@ public class ExportResource {
         Map<String, Object> data = pages.base(flash);
         try {
             List<Member> allMembers = members.listHouseholdMembers();
+            List<Completion> allCompletions = collectCompletions(allMembers);
+            List<LedgerEntry> allEntries = collectEntries(allMembers);
+            List<Statement> allStatements = collectStatements(allMembers);
+
             data.put("memberCount", allMembers.size());
             data.put("taskCount", tasks.listAll().size());
-            data.put("completionCount", allMembers.stream()
-                    .mapToInt(member -> completions.listCompletions(member.id()).size()).sum());
-            data.put("ledgerCount", allMembers.stream()
-                    .mapToInt(member -> ledger.listEntries(member.id()).size()).sum());
-            data.put("statementCount", allMembers.stream()
-                    .mapToInt(member -> statements.listStatements(member.id()).size()).sum());
+            data.put("completionCount", allCompletions.size());
+            data.put("ledgerCount", allEntries.size());
+            data.put("statementCount", allStatements.size());
             data.put("pendingCount", completions.listPending().size());
+            data.put("auditCount",
+                    audits.listAll(earliestPeriod(allCompletions, allEntries, allStatements)).size());
             data.put("storageUnavailable", false);
         } catch (SdkException e) {
             LOG.warnf("Could not read export counts: %s", e.getMessage());
@@ -95,15 +103,9 @@ public class ExportResource {
     @Produces(MediaType.APPLICATION_JSON)
     public ExportData data() {
         List<Member> allMembers = members.listHouseholdMembers();
-        List<Completion> allCompletions = new ArrayList<>();
-        List<LedgerEntry> allEntries = new ArrayList<>();
-        List<Statement> allStatements = new ArrayList<>();
-
-        for (Member member : allMembers) {
-            allCompletions.addAll(completions.listCompletions(member.id()));
-            allEntries.addAll(ledger.listEntries(member.id()));
-            allStatements.addAll(statements.listStatements(member.id()));
-        }
+        List<Completion> allCompletions = collectCompletions(allMembers);
+        List<LedgerEntry> allEntries = collectEntries(allMembers);
+        List<Statement> allStatements = collectStatements(allMembers);
 
         allCompletions.sort(Comparator.comparing(Completion::completedAt));
         allEntries.sort(Comparator.comparing(LedgerEntry::createdAt));
@@ -116,7 +118,8 @@ public class ExportResource {
                 allCompletions,
                 allEntries,
                 allStatements,
-                completions.listPending());
+                completions.listPending(),
+                audits.listAll(earliestPeriod(allCompletions, allEntries, allStatements)));
     }
 
     @GET
@@ -185,6 +188,68 @@ public class ExportResource {
         }
 
         return download(csv.toString(), "statements.csv");
+    }
+
+    @GET
+    @Path("/audit.csv")
+    @Produces("text/csv; charset=UTF-8")
+    public Response auditCsv() {
+        List<Member> allMembers = members.listHouseholdMembers();
+        List<Completion> allCompletions = collectCompletions(allMembers);
+        List<LedgerEntry> allEntries = collectEntries(allMembers);
+        List<Statement> allStatements = collectStatements(allMembers);
+
+        StringBuilder csv = new StringBuilder();
+        csv.append("occurred_at,period,actor_id,actor_name,action,member_id,member_name,details\n");
+
+        for (AuditEvent event : audits.listAll(earliestPeriod(allCompletions, allEntries, allStatements))) {
+            csv.append(csv(event.occurredAt().toString())).append(',')
+                    .append(csv(event.period().value())).append(',')
+                    .append(csv(event.actorId())).append(',')
+                    .append(csv(event.actorName())).append(',')
+                    .append(csv(event.action().name())).append(',')
+                    .append(csv(event.memberId())).append(',')
+                    .append(csv(event.memberName())).append(',')
+                    .append(csv(event.details())).append('\n');
+        }
+
+        return download(csv.toString(), "audit.csv");
+    }
+
+    private List<Completion> collectCompletions(List<Member> allMembers) {
+        List<Completion> all = new ArrayList<>();
+        for (Member member : allMembers) {
+            all.addAll(completions.listCompletions(member.id()));
+        }
+        return all;
+    }
+
+    private List<LedgerEntry> collectEntries(List<Member> allMembers) {
+        List<LedgerEntry> all = new ArrayList<>();
+        for (Member member : allMembers) {
+            all.addAll(ledger.listEntries(member.id()));
+        }
+        return all;
+    }
+
+    private List<Statement> collectStatements(List<Member> allMembers) {
+        List<Statement> all = new ArrayList<>();
+        for (Member member : allMembers) {
+            all.addAll(statements.listStatements(member.id()));
+        }
+        return all;
+    }
+
+    /**
+     * The audit trail only needs to cover months that contain household data.
+     */
+    private Period earliestPeriod(List<Completion> allCompletions, List<LedgerEntry> allEntries,
+            List<Statement> allStatements) {
+        List<Period> periods = new ArrayList<>();
+        allCompletions.forEach(completion -> periods.add(completion.period()));
+        allEntries.forEach(entry -> periods.add(entry.period()));
+        allStatements.forEach(statement -> periods.add(statement.period()));
+        return periods.stream().min(Comparator.naturalOrder()).orElseGet(household::currentPeriod);
     }
 
     private static Map<String, String> names(List<Member> members) {

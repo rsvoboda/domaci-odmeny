@@ -1,5 +1,6 @@
 package cz.domaci.odmeny.web;
 
+import cz.domaci.odmeny.audit.AuditEvent;
 import cz.domaci.odmeny.completion.Completion;
 import cz.domaci.odmeny.completion.CompletionStatus;
 import cz.domaci.odmeny.completion.PendingCompletion;
@@ -88,6 +89,24 @@ public final class Views {
                 statement.closedAt() == null ? "" : Formats.dateTime(statement.closedAt(), zone),
                 statement.paidAt() == null ? "" : Formats.dateTime(statement.paidAt(), zone),
                 statement.reopenReason() == null ? "" : statement.reopenReason());
+    }
+
+    public static AuditView audit(AuditEvent event, ZoneId zone) {
+        return new AuditView(
+                event.id(),
+                Formats.dateTime(event.occurredAt(), zone),
+                event.actorName(),
+                event.action().label(),
+                event.action().kind(),
+                event.memberName(),
+                event.details() == null ? "" : event.details());
+    }
+
+    public static PeriodLinkView periodLink(Period period, ZoneId zone, boolean active) {
+        return new PeriodLinkView(
+                period.value(),
+                Formats.period(period, zone),
+                active);
     }
 
     public static StatementOverviewRow overviewRow(Member member, Statement current, Statement previous,
@@ -212,5 +231,21 @@ public final class Views {
             String description,
             String amountText,
             int count) {
+    }
+
+    public record AuditView(
+            String id,
+            String whenText,
+            String actorName,
+            String actionLabel,
+            String actionKind,
+            String memberName,
+            String details) {
+    }
+
+    public record PeriodLinkView(
+            String value,
+            String label,
+            boolean active) {
     }
 }

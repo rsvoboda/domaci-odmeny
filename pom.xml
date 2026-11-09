@@ -22,6 +22,7 @@
         <aws.sdk.version>2.57.11</aws.sdk.version>
         <compiler-plugin.version>3.14.0</compiler-plugin.version>
         <surefire-plugin.version>3.5.2</surefire-plugin.version>
+        <failsafe-plugin.version>3.5.2</failsafe-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -143,4 +144,37 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            Real-infrastructure smoke tests. They are intentionally outside the
+            default build so `mvn test` stays hermetic. Start DynamoDB Local
+            first: `podman compose up -d dynamodb`, then run
+            `./mvnw -Pintegration verify`.
+        -->
+        <profile>
+            <id>integration</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${failsafe-plugin.version}</version>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                            </systemPropertyVariables>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

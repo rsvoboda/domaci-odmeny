@@ -1,5 +1,7 @@
 package cz.domaci.odmeny.statement;
 
+import cz.domaci.odmeny.audit.AuditAction;
+import cz.domaci.odmeny.audit.AuditEvent;
 import cz.domaci.odmeny.completion.Completion;
 import cz.domaci.odmeny.completion.CompletionService;
 import cz.domaci.odmeny.household.HouseholdService;
@@ -242,7 +244,7 @@ class StatementServiceTest {
                 null,
                 null,
                 null);
-        statementRepository.close(closed);
+        statementRepository.close(closed, auditEvent(child, current));
 
         assertThrows(MonthClosedException.class,
                 () -> completions.approve(parent, pending.id()));
@@ -265,5 +267,19 @@ class StatementServiceTest {
 
     private Member member(String cognitoSub) {
         return members.findByCognitoSub(cognitoSub).orElseThrow();
+    }
+
+    private AuditEvent auditEvent(Member member, Period period) {
+        return new AuditEvent(
+                "audit-" + member.id() + "-" + period.value(),
+                household.id(),
+                period,
+                household.now(),
+                parent.id(),
+                parent.displayName(),
+                AuditAction.MONTH_CLOSED,
+                member.id(),
+                member.displayName(),
+                null);
     }
 }

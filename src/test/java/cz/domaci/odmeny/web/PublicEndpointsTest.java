@@ -31,6 +31,34 @@ class PublicEndpointsTest {
     }
 
     @Test
+    void anonymousCanLoadTheInstallableAppShell() {
+        given()
+                .redirects().follow(false)
+                .when().get("/manifest.webmanifest")
+                .then()
+                .statusCode(200)
+                .body(containsString("\"name\": \"Domácí odměny\""))
+                .body(containsString("\"display\": \"standalone\""));
+
+        given()
+                .redirects().follow(false)
+                .when().get("/sw.js")
+                .then()
+                .statusCode(200)
+                .body(containsString("domaci-odmeny-v1"));
+
+        given()
+                .redirects().follow(false)
+                .when().get("/icons/icon.svg")
+                .then().statusCode(200);
+
+        given()
+                .redirects().follow(false)
+                .when().get("/icons/icon-maskable.svg")
+                .then().statusCode(200);
+    }
+
+    @Test
     void healthEndpointIsPublic() {
         given()
                 .redirects().follow(false)

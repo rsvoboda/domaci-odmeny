@@ -1,5 +1,8 @@
 package cz.domaci.odmeny.infrastructure.dynamodb;
 
+import cz.domaci.odmeny.audit.AuditAction;
+import cz.domaci.odmeny.audit.AuditEvent;
+import cz.domaci.odmeny.audit.AuditRepository;
 import cz.domaci.odmeny.completion.Completion;
 import cz.domaci.odmeny.completion.CompletionConflictException;
 import cz.domaci.odmeny.completion.CompletionRepository;
@@ -52,18 +55,24 @@ import java.util.Optional;
  *       {@code SK = PERIOD#<yyyy-mm>#STATEMENT#<id>}</li>
  *   <li>Pending: {@code PK = PENDING},
  *       {@code SK = CREATED#<padded-epoch-millis>#<completionId>}</li>
+ *   <li>Audit: {@code PK = AUDIT#<yyyy-mm>},
+ *       {@code SK = AUDIT#<padded-epoch-millis>#<id>}</li>
  * </ul>
  *
  * <p>Every state change is a DynamoDB transaction or a conditional write, which
- * makes approval, closing and payout idempotent.
+ * makes approval, closing and payout idempotent. The audit event is part of the
+ * same transaction as the change it describes.
  */
 @ApplicationScoped
-public class DynamoActivityRepository implements CompletionRepository, LedgerRepository, StatementRepository {
+public class DynamoActivityRepository
+        implements CompletionRepository, LedgerRepository, StatementRepository, AuditRepository {
 
     private static final String ENTITY_COMPLETION = "COMPLETION";
     private static final String ENTITY_LEDGER = "LEDGER";
     private static final String ENTITY_STATEMENT = "STATEMENT";
+    private static final String ENTITY_AUDIT = "AUDIT";
     private static final String PENDING_PK = "PENDING";
+    private static final String AUDIT_PREFIX = "AUDIT#";
 
     private final DynamoDbClient client;
     private final AppConfig config;
@@ -77,21 +86,23 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
     // CompletionRepository ---------------------------------------------------
 
     @Override
-    public void createPending(Completion completion, PendingCompletion pending) {
+    public void createPending(Completion completion, PendingCompletion pending, AuditEvent audit) {
         transact(
                 put(activityTable(), completionItem(completion)),
-                put(pendingTable(), pendingItem(pending)));
+                put(pendingTable(), pendingItem(pending)),
+                put(activityTable(), auditItem(audit)));
     }
 
     @Override
-    public void createApproved(Completion completion, LedgerEntry ledgerEntry) {
+    public void createApproved(Completion completion, LedgerEntry ledgerEntry, AuditEvent audit) {
         transact(
                 put(activityTable(), completionItem(completion)),
-                put(activityTable(), ledgerItem(ledgerEntry)));
+                put(activityTable(), ledgerItem(ledgerEntry)),
+                put(activityTable(), auditItem(audit)));
     }
 
     @Override
-    public void approve(Completion completion, LedgerEntry ledgerEntry) {
+    public void approve(Completion completion, LedgerEntry ledgerEntry, AuditEvent audit) {
         Map<String, AttributeValue> values = new HashMap<>();
         values.put(":status", AttributeValue.fromS(CompletionStatus.APPROVED.name()));
         values.put(":pending", AttributeValue.fromS(CompletionStatus.PENDING.name()));
@@ -112,11 +123,12 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
         transact(
                 TransactWriteItem.builder().update(update).build(),
                 put(activityTable(), ledgerItem(ledgerEntry)),
-                deletePending(completion));
+                deletePending(completion),
+                put(activityTable(), auditItem(audit)));
     }
 
     @Override
-    public void reject(Completion completion) {
+    public void reject(Completion completion, AuditEvent audit) {
         Map<String, AttributeValue> values = new HashMap<>();
         values.put(":status", AttributeValue.fromS(CompletionStatus.REJECTED.name()));
         values.put(":pending", AttributeValue.fromS(CompletionStatus.PENDING.name()));
@@ -137,7 +149,8 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
 
         transact(
                 TransactWriteItem.builder().update(update).build(),
-                deletePending(completion));
+                deletePending(completion),
+                put(activityTable(), auditItem(audit)));
     }
 
     @Override
@@ -191,16 +204,15 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
     }
 
     @Override
-    public void addEntry(LedgerEntry entry) {
-        try {
-            client.putItem(PutItemRequest.builder()
-                    .tableName(activityTable())
-                    .item(ledgerItem(entry))
-                    .conditionExpression("attribute_not_exists(PK)")
-                    .build());
-        } catch (ConditionalCheckFailedException e) {
-            throw new IllegalStateException("Ledger entry already exists: " + entry.id(), e);
-        }
+    public void addEntry(LedgerEntry entry, AuditEvent audit) {
+        Put ledgerPut = Put.builder()
+                .tableName(activityTable())
+                .item(ledgerItem(entry))
+                .conditionExpression("attribute_not_exists(PK)")
+                .build();
+        transactStatements(
+                TransactWriteItem.builder().put(ledgerPut).build(),
+                put(activityTable(), auditItem(audit)));
     }
 
     // StatementRepository ----------------------------------------------------
@@ -230,40 +242,40 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
     }
 
     @Override
-    public void close(Statement statement) {
-        try {
-            client.putItem(PutItemRequest.builder()
-                    .tableName(activityTable())
-                    .item(statementItem(statement))
-                    .conditionExpression("attribute_not_exists(PK) OR #status = :open")
-                    .expressionAttributeNames(Map.of("#status", "status"))
-                    .expressionAttributeValues(Map.of(":open", AttributeValue.fromS(StatementStatus.OPEN.name())))
-                    .build());
-        } catch (ConditionalCheckFailedException e) {
-            throw new StatementConflictException("The month is already closed", e);
-        }
+    public void close(Statement statement, AuditEvent audit) {
+        Put statementPut = Put.builder()
+                .tableName(activityTable())
+                .item(statementItem(statement))
+                .conditionExpression("attribute_not_exists(PK) OR #status = :open")
+                .expressionAttributeNames(Map.of("#status", "status"))
+                .expressionAttributeValues(Map.of(":open", AttributeValue.fromS(StatementStatus.OPEN.name())))
+                .build();
+
+        transactStatements(
+                TransactWriteItem.builder().put(statementPut).build(),
+                put(activityTable(), auditItem(audit)));
     }
 
     @Override
-    public void reopen(Statement statement) {
-        try {
-            client.putItem(PutItemRequest.builder()
-                    .tableName(activityTable())
-                    .item(statementItem(statement))
-                    .conditionExpression(
-                            "attribute_exists(PK) AND (#status = :closed OR #status = :paid)")
-                    .expressionAttributeNames(Map.of("#status", "status"))
-                    .expressionAttributeValues(Map.of(
-                            ":closed", AttributeValue.fromS(StatementStatus.CLOSED.name()),
-                            ":paid", AttributeValue.fromS(StatementStatus.PAID.name())))
-                    .build());
-        } catch (ConditionalCheckFailedException e) {
-            throw new StatementConflictException("The month is not closed", e);
-        }
+    public void reopen(Statement statement, AuditEvent audit) {
+        Put statementPut = Put.builder()
+                .tableName(activityTable())
+                .item(statementItem(statement))
+                .conditionExpression(
+                        "attribute_exists(PK) AND (#status = :closed OR #status = :paid)")
+                .expressionAttributeNames(Map.of("#status", "status"))
+                .expressionAttributeValues(Map.of(
+                        ":closed", AttributeValue.fromS(StatementStatus.CLOSED.name()),
+                        ":paid", AttributeValue.fromS(StatementStatus.PAID.name())))
+                .build();
+
+        transactStatements(
+                TransactWriteItem.builder().put(statementPut).build(),
+                put(activityTable(), auditItem(audit)));
     }
 
     @Override
-    public void markPaid(Statement statement, LedgerEntry payout) {
+    public void markPaid(Statement statement, LedgerEntry payout, AuditEvent audit) {
         Put statementPut = Put.builder()
                 .tableName(activityTable())
                 .item(statementItem(statement))
@@ -274,7 +286,40 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
 
         transactStatements(
                 TransactWriteItem.builder().put(statementPut).build(),
-                put(activityTable(), ledgerItem(payout)));
+                put(activityTable(), ledgerItem(payout)),
+                put(activityTable(), auditItem(audit)));
+    }
+
+    // AuditRepository --------------------------------------------------------
+
+    @Override
+    public void append(AuditEvent event) {
+        try {
+            client.putItem(PutItemRequest.builder()
+                    .tableName(activityTable())
+                    .item(auditItem(event))
+                    .conditionExpression("attribute_not_exists(PK)")
+                    .build());
+        } catch (ConditionalCheckFailedException e) {
+            throw new IllegalStateException("Audit event already exists: " + event.id(), e);
+        }
+    }
+
+    @Override
+    public List<AuditEvent> listByPeriod(Period period) {
+        return query(activityTable(), auditPrefix(period), AUDIT_PREFIX).stream()
+                .filter(item -> ENTITY_AUDIT.equals(string(item, "entityType")))
+                .map(DynamoActivityRepository::toAuditEvent)
+                .toList();
+    }
+
+    @Override
+    public List<AuditEvent> listBetween(Period from, Period to) {
+        List<AuditEvent> events = new ArrayList<>();
+        for (Period period = from; period.compareTo(to) <= 0; period = period.next()) {
+            events.addAll(listByPeriod(period));
+        }
+        return events;
     }
 
     // Helpers ----------------------------------------------------------------
@@ -429,6 +474,24 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
         return item;
     }
 
+    private static Map<String, AttributeValue> auditItem(AuditEvent event) {
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("PK", AttributeValue.fromS(auditPrefix(event.period())));
+        item.put("SK", AttributeValue.fromS(auditSk(event)));
+        item.put("entityType", AttributeValue.fromS(ENTITY_AUDIT));
+        item.put("id", AttributeValue.fromS(event.id()));
+        item.put("householdId", AttributeValue.fromS(event.householdId()));
+        item.put("period", AttributeValue.fromS(event.period().value()));
+        item.put("occurredAtEpochMilli", AttributeValue.fromN(Long.toString(event.occurredAt().toEpochMilli())));
+        item.put("actorId", AttributeValue.fromS(event.actorId()));
+        item.put("actorName", AttributeValue.fromS(event.actorName()));
+        item.put("action", AttributeValue.fromS(event.action().name()));
+        item.put("memberId", AttributeValue.fromS(event.memberId()));
+        item.put("memberName", AttributeValue.fromS(event.memberName()));
+        putString(item, "details", event.details());
+        return item;
+    }
+
     private static Map<String, AttributeValue> pendingItem(PendingCompletion pending) {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("PK", AttributeValue.fromS(PENDING_PK));
@@ -502,6 +565,20 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
                 string(item, "reopenReason"));
     }
 
+    private static AuditEvent toAuditEvent(Map<String, AttributeValue> item) {
+        return new AuditEvent(
+                string(item, "id"),
+                string(item, "householdId"),
+                Period.parse(string(item, "period")),
+                instant(item, "occurredAtEpochMilli"),
+                string(item, "actorId"),
+                string(item, "actorName"),
+                AuditAction.valueOf(string(item, "action")),
+                string(item, "memberId"),
+                string(item, "memberName"),
+                string(item, "details"));
+    }
+
     private static PendingCompletion toPendingCompletion(Map<String, AttributeValue> item) {
         return new PendingCompletion(
                 string(item, "completionId"),
@@ -549,6 +626,14 @@ public class DynamoActivityRepository implements CompletionRepository, LedgerRep
 
     private static String pendingSk(Instant createdAt, String completionId) {
         return "CREATED#" + paddedMillis(createdAt) + "#" + completionId;
+    }
+
+    private static String auditPrefix(Period period) {
+        return AUDIT_PREFIX + period.value();
+    }
+
+    private static String auditSk(AuditEvent event) {
+        return AUDIT_PREFIX + paddedMillis(event.occurredAt()) + "#" + event.id();
     }
 
     private static String memberPk(String memberId) {

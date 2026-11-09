@@ -27,6 +27,8 @@
         <dd>{statementCount}</dd>
         <dt>Čeká na schválení</dt>
         <dd>{pendingCount}</dd>
+        <dt>Audit změn</dt>
+        <dd>{auditCount}</dd>
     </dl>
 </article>
 {/if}
@@ -37,6 +39,7 @@
         <li><a href="/export/data.json">Kompletní data domácnosti (JSON)</a></li>
         <li><a href="/export/ledger.csv">Ledger (CSV)</a></li>
         <li><a href="/export/statements.csv">Měsíční výpisy (CSV)</a></li>
+        <li><a href="/export/audit.csv">Audit změn (CSV)</a></li>
     </ul>
     <footer>
         <small>Částky v CSV jsou v haléřích, takže export zůstává přesný.</small>

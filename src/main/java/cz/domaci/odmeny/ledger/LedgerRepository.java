@@ -1,5 +1,6 @@
 package cz.domaci.odmeny.ledger;
 
+import cz.domaci.odmeny.audit.AuditEvent;
 import cz.domaci.odmeny.shared.Period;
 
 import java.util.List;
@@ -18,9 +19,9 @@ public interface LedgerRepository {
     List<LedgerEntry> listEntries(String memberId);
 
     /**
-     * Appends a new entry.
+     * Appends a new entry and its audit event in one atomic write.
      *
      * @throws IllegalStateException when the entry id already exists
      */
-    void addEntry(LedgerEntry entry);
+    void addEntry(LedgerEntry entry, AuditEvent audit);
 }

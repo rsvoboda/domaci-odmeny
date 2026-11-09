@@ -9,8 +9,10 @@ a task-assignment or reminder system.
 
 - Product proposal: [`docs/proposal.md`](docs/proposal.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/README.md)
+- Deployment guide: [`docs/deployment.md`](docs/deployment.md)
+- Operations runbook: [`docs/runbook.md`](docs/runbook.md)
 
-## Current status — Slice 3 (money workflow)
+## Current status — Slice 4 (hardening)
 
 Implemented:
 
@@ -30,18 +32,30 @@ Implemented:
 - Close a month (blocked while completions are pending), mark it paid, and
   reopen it with a reason
 - Late work after a close automatically belongs to the next open month
-- Parent-only export: full JSON backup plus ledger and statement CSV files
+- Parent-only audit view (`/audit`) with a 12-month picker: who changed what,
+  for which child, when, with the amount or reason
+- Audit events are written in the same DynamoDB transaction as the change they
+  describe, so the trail cannot silently diverge from the money data
+- Parent-only export: full JSON backup (including the audit trail) plus ledger,
+  statement and audit CSV files
+- Installable PWA: manifest, maskable SVG icons and a service worker that caches
+  only static assets. Pages are deliberately not cached because they contain
+  household data
+- Mobile polish: larger tap targets, wrapping navigation, safe-area padding and
+  scrollable month pickers
 - Append-only ledger entries written atomically with the completion state and
   with the payout
 - DynamoDB adapters using transactions with condition expressions, so double
   approval or double payout cannot credit twice
 - SAM template: Cognito, four DynamoDB tables, Lambda + Function URL, log
-  retention, alarms and a $1 budget
-- 71 hermetic tests: money/period primitives, domain workflow, statements,
-  export, web flow, CSRF, authorization, and UTF-8 form input
+  retention, JSON production logs, alarms and a $1 budget with actual and
+  forecasted alerts
+- 82 hermetic tests plus 2 real-DynamoDB integration tests: money/period
+  primitives, domain workflow, statements, audit trail, export, PWA endpoints,
+  web flow, CSRF, authorization, and UTF-8 form input
 
-Not implemented yet: audit history view, PWA, settings UI. See the delivery
-plan in the proposal.
+Not implemented yet: settings UI (editing the catalog and rewards) and partial
+payouts. See the delivery plan in the proposal.
 
 ## Prerequisites
 
@@ -105,8 +119,23 @@ chore credits it immediately without a queue item.
    The base snapshot is kept; later corrections are new ledger entries. A later
    close recomputes the totals from the ledger.
 7. Work logged after a month is closed is assigned to the next open month.
-8. **Export** downloads the full household JSON, the ledger CSV or the statement
-   CSV. CSV amounts are in haléře so the export stays exact.
+8. **Export** downloads the full household JSON, the ledger CSV, the statement
+   CSV or the audit CSV. CSV amounts are in haléře so the export stays exact.
+
+### The Slice 4 flow (audit and PWA)
+
+1. Log in as `parent1` and open **Audit**. The page lists the current month's
+   changes newest first, with the actor, the affected child, the action and the
+   amount or reason.
+2. Use the month picker to look at any of the last 12 months.
+3. Every logged chore, auto-approved chore, approval, rejection, correction,
+   close, payout and reopen is recorded. A failed change (for example approving
+   the same completion twice) does not add an audit event.
+4. The audit trail is included in `/export/data.json` and is available as
+   `/export/audit.csv`.
+5. On a phone, open the site in the browser and choose **Add to home screen**.
+   The app shell is cached for fast startup; pages themselves are always fetched
+   fresh because they contain household data.
 
 ### Development login
 
@@ -122,11 +151,21 @@ Cognito handles authentication.
 
 The tests are hermetic. Web tests use `@TestSecurity`, and an in-memory
 `@Alternative` implementation of every repository replaces DynamoDB, so neither
-DynamoDB nor Cognito is needed.
+DynamoDB nor Cognito is needed. The suite covers money and period primitives,
+the approval workflow, statements, the audit trail, exports, PWA endpoints,
+CSRF, authorization and UTF-8 form input.
 
-DynamoDB transaction behavior (condition expressions, idempotent approval, the
-payout transaction, close/reopen conditions) is smoke-tested against DynamoDB
-Local through the dev profile.
+Real DynamoDB behavior (transactions, condition expressions, the audit write in
+the same transaction as the change, idempotent approval and payout) is covered by
+a separate integration profile so the default build stays hermetic:
+
+```bash
+podman compose up -d dynamodb
+./mvnw -Pintegration verify
+```
+
+The integration test uses its own `*IT` tables and is skipped when DynamoDB
+Local is not running.
 
 ## Build
 
@@ -140,7 +179,9 @@ artifact referenced by the SAM template.
 ## Deploy to AWS
 
 The stack lives in `sam/template.yaml` and uses region `eu-central-1` by
-default through the deployment command.
+default through the deployment command. The full step-by-step guide, including
+Cognito account creation, member linking, verification and rollback, is in
+[`docs/deployment.md`](docs/deployment.md).
 
 ### 1. Build
 
@@ -324,5 +365,9 @@ compose.yaml           # DynamoDB Local for development
   as production.
 - Marking a month paid records one payout for the full remaining balance;
   partial payouts are not supported in v1.
-- The audit history view, PWA manifest, offline behavior and the operational
-  runbook are later slices.
+- The service worker caches only the app shell. Pages are intentionally
+  network-only, so the app does not work fully offline; that trade-off keeps
+  household data out of the browser cache.
+- Point-in-time recovery is not enabled by the SAM template to stay in the free
+  tier. Enable it per table once the household has history you cannot recreate;
+  see [`docs/runbook.md`](docs/runbook.md).

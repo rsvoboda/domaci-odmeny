@@ -1,0 +1,46 @@
+{#include layout}
+{#title}Audit — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Audit změn</h1>
+    <p>Kdo co změnil v měsíci {periodLabel}.</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{/if}
+
+<nav class="period-picker" aria-label="Výběr měsíce">
+    {#for month in months}
+    <a href="/audit?period={month.value}"
+       class="badge {#if month.active}approved{#else}open{/if}">{month.label}</a>
+    {/for}
+</nav>
+
+{#if events.isEmpty()}
+<article><p>V tomto měsíci nejsou žádné zaznamenané změny.</p></article>
+{#else}
+<article>
+    <header><strong>Změny ({events.size})</strong></header>
+    <ul class="audit-list">
+        {#for event in events}
+        <li class="audit-item">
+            <div class="history-line">
+                <span>
+                    <span class="badge {event.actionKind}">{event.actionLabel}</span>
+                    <strong>{event.memberName}</strong>
+                </span>
+                <span class="meta">{event.whenText}</span>
+            </div>
+            <div class="meta">Provedl(a): {event.actorName}</div>
+            {#if event.details}<div class="note">{event.details}</div>{/if}
+        </li>
+        {/for}
+    </ul>
+</article>
+{/if}
+{/body}
+{/include}

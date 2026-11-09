@@ -1,5 +1,8 @@
 package cz.domaci.odmeny.completion;
 
+import cz.domaci.odmeny.audit.AuditAction;
+import cz.domaci.odmeny.audit.AuditEvent;
+import cz.domaci.odmeny.audit.AuditService;
 import cz.domaci.odmeny.household.HouseholdService;
 import cz.domaci.odmeny.household.MonthClosedException;
 import cz.domaci.odmeny.household.PeriodGate;
@@ -31,14 +34,16 @@ public class CompletionService {
     private final TaskService tasks;
     private final HouseholdService household;
     private final PeriodGate periodGate;
+    private final AuditService audits;
 
     @Inject
     public CompletionService(CompletionRepository completions, TaskService tasks, HouseholdService household,
-            PeriodGate periodGate) {
+            PeriodGate periodGate, AuditService audits) {
         this.completions = completions;
         this.tasks = tasks;
         this.household = household;
         this.periodGate = periodGate;
+        this.audits = audits;
     }
 
     /**
@@ -91,9 +96,13 @@ public class CompletionService {
                     period,
                     normalizedNote,
                     now);
-            completions.createPending(completion, pending);
+            AuditEvent audit = audits.create(child, child.id(), child.displayName(), period,
+                    AuditAction.CHORE_LOGGED, details(task.name(), normalizedNote));
+            completions.createPending(completion, pending, audit);
         } else {
-            completions.createApproved(completion, rewardEntry(completion, child.id(), now));
+            AuditEvent audit = audits.create(child, child.id(), child.displayName(), period,
+                    AuditAction.CHORE_AUTO_APPROVED, details(task.name(), normalizedNote));
+            completions.createApproved(completion, rewardEntry(completion, child.id(), now), audit);
         }
 
         return completion;
@@ -141,7 +150,9 @@ public class CompletionService {
                 now,
                 null);
 
-        completions.approve(approved, rewardEntry(approved, parent.id(), now));
+        completions.approve(approved, rewardEntry(approved, parent.id(), now),
+                audits.create(parent, pending.memberId(), pending.memberName(), pending.period(),
+                        AuditAction.CHORE_APPROVED, details(pending.taskName(), pending.note())));
         return approved;
     }
 
@@ -173,7 +184,10 @@ public class CompletionService {
                 now,
                 normalizedReason);
 
-        completions.reject(rejected);
+        completions.reject(rejected,
+                audits.create(parent, pending.memberId(), pending.memberName(), pending.period(),
+                        AuditAction.CHORE_REJECTED,
+                        details(pending.taskName(), normalizedReason)));
         return rejected;
     }
 
@@ -209,6 +223,10 @@ public class CompletionService {
                 completion.id(),
                 createdBy,
                 createdAt);
+    }
+
+    private static String details(String taskName, String context) {
+        return context == null ? taskName : taskName + " · " + context;
     }
 
     private static String normalize(String text) {

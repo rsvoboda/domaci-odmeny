@@ -1,5 +1,6 @@
 package cz.domaci.odmeny.web;
 
+import cz.domaci.odmeny.audit.AuditEvent;
 import cz.domaci.odmeny.completion.Completion;
 import cz.domaci.odmeny.completion.PendingCompletion;
 import cz.domaci.odmeny.household.Household;
@@ -20,5 +21,6 @@ public record ExportData(
         List<Completion> completions,
         List<LedgerEntry> ledger,
         List<Statement> statements,
-        List<PendingCompletion> pending) {
+        List<PendingCompletion> pending,
+        List<AuditEvent> audit) {
 }

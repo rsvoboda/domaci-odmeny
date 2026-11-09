@@ -1,5 +1,7 @@
 package cz.domaci.odmeny.testsupport;
 
+import cz.domaci.odmeny.audit.AuditEvent;
+import cz.domaci.odmeny.audit.AuditRepository;
 import cz.domaci.odmeny.completion.Completion;
 import cz.domaci.odmeny.completion.CompletionConflictException;
 import cz.domaci.odmeny.completion.CompletionRepository;
@@ -37,7 +39,7 @@ import java.util.Optional;
 @Alternative
 @Priority(1)
 public class InMemoryStore implements MemberRepository, HouseholdRepository, TaskRepository,
-        CompletionRepository, LedgerRepository, StatementRepository {
+        CompletionRepository, LedgerRepository, StatementRepository, AuditRepository {
 
     public static final String HOUSEHOLD_ID = "default";
     public static final String PARENT_1 = "parent-1";
@@ -50,6 +52,7 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     private final Map<String, LedgerEntry> ledger = new LinkedHashMap<>();
     private final Map<String, PendingCompletion> pending = new LinkedHashMap<>();
     private final Map<String, Statement> statements = new LinkedHashMap<>();
+    private final Map<String, AuditEvent> auditEvents = new LinkedHashMap<>();
     private Household household;
 
     @PostConstruct
@@ -64,6 +67,7 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         ledger.clear();
         pending.clear();
         statements.clear();
+        auditEvents.clear();
 
         household = new Household(HOUSEHOLD_ID, "Naše domácnost", "CZK", "Europe/Prague");
 
@@ -112,6 +116,16 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
 
     public synchronized List<Statement> statementItems() {
         return new ArrayList<>(statements.values());
+    }
+
+    public synchronized List<AuditEvent> auditEvents() {
+        return new ArrayList<>(auditEvents.values());
+    }
+
+    public synchronized List<AuditEvent> auditEvents(Period period) {
+        return auditEvents.values().stream()
+                .filter(event -> event.period().equals(period))
+                .toList();
     }
 
     // MemberRepository -------------------------------------------------------
@@ -177,27 +191,30 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     // CompletionRepository ---------------------------------------------------
 
     @Override
-    public synchronized void createPending(Completion completion, PendingCompletion pendingCompletion) {
+    public synchronized void createPending(Completion completion, PendingCompletion pendingCompletion,
+            AuditEvent audit) {
         String key = completionKey(completion.memberId(), completion.id());
         if (completions.containsKey(key) || pending.containsKey(completion.id())) {
             throw new CompletionConflictException("Completion already exists");
         }
         completions.put(key, completion);
         pending.put(completion.id(), pendingCompletion);
+        putAudit(audit);
     }
 
     @Override
-    public synchronized void createApproved(Completion completion, LedgerEntry ledgerEntry) {
+    public synchronized void createApproved(Completion completion, LedgerEntry ledgerEntry, AuditEvent audit) {
         String key = completionKey(completion.memberId(), completion.id());
         if (completions.containsKey(key) || ledger.containsKey(ledgerEntry.id())) {
             throw new CompletionConflictException("Completion already exists");
         }
         completions.put(key, completion);
         ledger.put(ledgerEntry.id(), ledgerEntry);
+        putAudit(audit);
     }
 
     @Override
-    public synchronized void approve(Completion completion, LedgerEntry ledgerEntry) {
+    public synchronized void approve(Completion completion, LedgerEntry ledgerEntry, AuditEvent audit) {
         Completion existing = completions.get(completionKey(completion.memberId(), completion.id()));
         if (existing == null || !existing.isPending()) {
             throw new CompletionConflictException("Completion is no longer pending");
@@ -208,16 +225,18 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         completions.put(completionKey(completion.memberId(), completion.id()), completion);
         ledger.put(ledgerEntry.id(), ledgerEntry);
         pending.remove(completion.id());
+        putAudit(audit);
     }
 
     @Override
-    public synchronized void reject(Completion completion) {
+    public synchronized void reject(Completion completion, AuditEvent audit) {
         Completion existing = completions.get(completionKey(completion.memberId(), completion.id()));
         if (existing == null || !existing.isPending()) {
             throw new CompletionConflictException("Completion is no longer pending");
         }
         completions.put(completionKey(completion.memberId(), completion.id()), completion);
         pending.remove(completion.id());
+        putAudit(audit);
     }
 
     @Override
@@ -263,11 +282,12 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     }
 
     @Override
-    public synchronized void addEntry(LedgerEntry entry) {
+    public synchronized void addEntry(LedgerEntry entry, AuditEvent audit) {
         if (ledger.containsKey(entry.id())) {
             throw new IllegalStateException("Ledger entry already exists: " + entry.id());
         }
         ledger.put(entry.id(), entry);
+        putAudit(audit);
     }
 
     // StatementRepository ----------------------------------------------------
@@ -285,25 +305,27 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     }
 
     @Override
-    public synchronized void close(Statement statement) {
+    public synchronized void close(Statement statement, AuditEvent audit) {
         Statement existing = statements.get(statementKey(statement.memberId(), statement.period()));
         if (existing != null && !existing.isOpen()) {
             throw new StatementConflictException("The month is already closed");
         }
         statements.put(statementKey(statement.memberId(), statement.period()), statement);
+        putAudit(audit);
     }
 
     @Override
-    public synchronized void reopen(Statement statement) {
+    public synchronized void reopen(Statement statement, AuditEvent audit) {
         Statement existing = statements.get(statementKey(statement.memberId(), statement.period()));
         if (existing == null || existing.isOpen()) {
             throw new StatementConflictException("The month is not closed");
         }
         statements.put(statementKey(statement.memberId(), statement.period()), statement);
+        putAudit(audit);
     }
 
     @Override
-    public synchronized void markPaid(Statement statement, LedgerEntry payout) {
+    public synchronized void markPaid(Statement statement, LedgerEntry payout, AuditEvent audit) {
         Statement existing = statements.get(statementKey(statement.memberId(), statement.period()));
         if (existing == null || !existing.isClosed()) {
             throw new StatementConflictException("The month is not closed");
@@ -313,6 +335,35 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         }
         statements.put(statementKey(statement.memberId(), statement.period()), statement);
         ledger.put(payout.id(), payout);
+        putAudit(audit);
+    }
+
+    // AuditRepository --------------------------------------------------------
+
+    @Override
+    public synchronized void append(AuditEvent event) {
+        putAudit(event);
+    }
+
+    @Override
+    public synchronized List<AuditEvent> listByPeriod(Period period) {
+        return auditEvents.values().stream()
+                .filter(event -> event.period().equals(period))
+                .toList();
+    }
+
+    @Override
+    public synchronized List<AuditEvent> listBetween(Period from, Period to) {
+        return auditEvents.values().stream()
+                .filter(event -> event.period().compareTo(from) >= 0 && event.period().compareTo(to) <= 0)
+                .toList();
+    }
+
+    private void putAudit(AuditEvent audit) {
+        if (auditEvents.containsKey(audit.id())) {
+            throw new IllegalStateException("Audit event already exists: " + audit.id());
+        }
+        auditEvents.put(audit.id(), audit);
     }
 
     private static String completionKey(String memberId, String completionId) {

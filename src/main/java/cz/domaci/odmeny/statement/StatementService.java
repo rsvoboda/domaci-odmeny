@@ -1,5 +1,7 @@
 package cz.domaci.odmeny.statement;
 
+import cz.domaci.odmeny.audit.AuditAction;
+import cz.domaci.odmeny.audit.AuditService;
 import cz.domaci.odmeny.completion.CompletionRepository;
 import cz.domaci.odmeny.household.HouseholdService;
 import cz.domaci.odmeny.household.PeriodGate;
@@ -8,6 +10,7 @@ import cz.domaci.odmeny.ledger.LedgerEntryType;
 import cz.domaci.odmeny.ledger.LedgerRepository;
 import cz.domaci.odmeny.member.Member;
 import cz.domaci.odmeny.shared.Money;
+import cz.domaci.odmeny.shared.MoneyText;
 import cz.domaci.odmeny.shared.Period;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -42,15 +45,18 @@ public class StatementService {
     private final CompletionRepository completions;
     private final HouseholdService household;
     private final PeriodGate periodGate;
+    private final AuditService audits;
 
     @Inject
     public StatementService(StatementRepository statements, LedgerRepository ledger,
-            CompletionRepository completions, HouseholdService household, PeriodGate periodGate) {
+            CompletionRepository completions, HouseholdService household, PeriodGate periodGate,
+            AuditService audits) {
         this.statements = statements;
         this.ledger = ledger;
         this.completions = completions;
         this.household = household;
         this.periodGate = periodGate;
+        this.audits = audits;
     }
 
     /**
@@ -121,7 +127,8 @@ public class StatementService {
                 id,
                 parent.id(),
                 household.now());
-        ledger.addEntry(entry);
+        ledger.addEntry(entry, audits.create(parent, member.id(), member.displayName(), period,
+                AuditAction.ADJUSTMENT_ADDED, MoneyText.format(amount) + " · " + normalizedReason));
         return statement(member, period);
     }
 
@@ -165,7 +172,8 @@ public class StatementService {
                 stored.map(Statement::reopenedBy).orElse(null),
                 stored.map(Statement::reopenReason).orElse(null));
 
-        statements.close(closed);
+        statements.close(closed, audits.create(parent, member.id(), member.displayName(), period,
+                AuditAction.MONTH_CLOSED, null));
         return closed;
     }
 
@@ -226,7 +234,8 @@ public class StatementService {
                 stored.reopenedBy(),
                 stored.reopenReason());
 
-        statements.markPaid(paid, payout);
+        statements.markPaid(paid, payout, audits.create(parent, member.id(), member.displayName(), period,
+                AuditAction.MONTH_PAID, MoneyText.format(balance)));
         return paid;
     }
 
@@ -266,7 +275,8 @@ public class StatementService {
                 parent.id(),
                 normalizedReason);
 
-        statements.reopen(reopened);
+        statements.reopen(reopened, audits.create(parent, member.id(), member.displayName(), period,
+                AuditAction.MONTH_REOPENED, normalizedReason));
         return reopened;
     }
 

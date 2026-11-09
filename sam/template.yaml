@@ -326,6 +326,13 @@ Resources:
             Subscribers:
               - SubscriptionType: EMAIL
                 Address: !Ref BudgetAlertEmail
+          - Notification:
+              NotificationType: FORECASTED
+              ComparisonOperator: GREATER_THAN
+              Threshold: 100
+            Subscribers:
+              - SubscriptionType: EMAIL
+                Address: !Ref BudgetAlertEmail
         - !Ref AWS::NoValue
 
 Outputs:

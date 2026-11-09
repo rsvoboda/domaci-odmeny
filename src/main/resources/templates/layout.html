@@ -4,7 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{#insert title}{appName}{/insert}</title>
+    <meta name="theme-color" content="#0b5cad">
+    <meta name="description" content="Rodinné odměny za domácí práce">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Odměny">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/icon.svg">
     <link rel="stylesheet" href="/assets/pico.min.css">
     <link rel="stylesheet" href="/assets/app.css">
     <script src="/assets/htmx.min.js" defer></script>
@@ -20,6 +28,7 @@
             {#if isParent}
             <li><a href="/approvals">Schvalování</a></li>
             <li><a href="/statements">Výplaty</a></li>
+            <li><a href="/audit">Audit</a></li>
             <li><a href="/export">Export</a></li>
             {#else}
             <li><a href="/history">Historie</a></li>
@@ -39,5 +48,12 @@
 <footer class="container">
     <small>{householdName} · Domácí odměny</small>
 </footer>
+<script>
+    if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+            navigator.serviceWorker.register("/sw.js");
+        });
+    }
+</script>
 </body>
 </html>
