@@ -313,7 +313,7 @@ echo "Provisioned $MEMBER_COUNT member(s)."
 
 if [ -n "$NEW_ACCOUNTS" ]; then
     echo
-    echo "New accounts and one-time passwords (change them after the first sign-in):"
+    echo "New accounts and passwords (permanent; change them with an admin reset):"
     printf "%b" "$NEW_ACCOUNTS"
 else
     echo "No new Cognito accounts were created."

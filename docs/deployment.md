@@ -169,8 +169,10 @@ reference them, so do not change an id after the household starts using the app.
   --members-file ~/domaci-odmeny-members.tsv
 ```
 
-It reads `CognitoUserPoolId` and `MembersTable` from the stack outputs. Keep the
-printed passwords safe and change them after the first sign-in. Re-run the same
+It reads `CognitoUserPoolId` and `MembersTable` from the stack outputs. The
+printed passwords are permanent: there is no self-service change in the app, so
+keep them safe and use the admin reset in the
+[runbook](runbook.md#reset-a-password) if one needs to change. Re-run the same
 command after adding a member; existing users and member records are left
 intact.
 

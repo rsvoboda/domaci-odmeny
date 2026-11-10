@@ -308,10 +308,12 @@ $EDITOR ~/domaci-odmeny-members.tsv
 ```
 
 The member file is tab-separated (`member-id`, username, display name,
-`PARENT`/`CHILD`, base allowance in whole CZK). The script prints a one-time
-password for each newly created account. Re-running it is safe: existing users
-keep their password, and member records edited in **Nastavení** keep their
-display name, allowance and active flag.
+`PARENT`/`CHILD`, base allowance in whole CZK); two or more spaces between the
+columns also work. The script prints a permanent password for each newly created
+account. Re-running it is safe: existing users keep their password, and member
+records edited in **Nastavení** keep their display name, allowance and active
+flag. Password changes are an admin action — see
+[`docs/runbook.md`](docs/runbook.md#reset-a-password).
 
 The manual Cognito commands and the member-item layout are documented in
 [`docs/deployment.md`](docs/deployment.md#4-create-the-family-accounts).
