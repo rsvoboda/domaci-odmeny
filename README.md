@@ -12,7 +12,7 @@ a task-assignment or reminder system.
 - Deployment guide: [`docs/deployment.md`](docs/deployment.md)
 - Operations runbook: [`docs/runbook.md`](docs/runbook.md)
 
-## Current status — Slice 4 (hardening)
+## Current status — Slice 5 (settings)
 
 Implemented:
 
@@ -34,6 +34,11 @@ Implemented:
 - Late work after a close automatically belongs to the next open month
 - Parent-only audit view (`/audit`) with a 12-month picker: who changed what,
   for which child, when, with the amount or reason
+- Parent-only **Nastavení** (`/settings`): rename the household, rename members,
+  set each child's base allowance and active flag, and create or edit chores
+  (name, description, reward, approval requirement, active flag)
+- Settings changes are written with an audit event in the same DynamoDB
+  transaction, so the trail always matches the stored settings
 - Audit events are written in the same DynamoDB transaction as the change they
   describe, so the trail cannot silently diverge from the money data
 - Parent-only export: full JSON backup (including the audit trail) plus ledger,
@@ -50,12 +55,11 @@ Implemented:
 - SAM template: Cognito, four DynamoDB tables, Lambda + Function URL, log
   retention, JSON production logs, alarms and a $1 budget with actual and
   forecasted alerts
-- 82 hermetic tests plus 2 real-DynamoDB integration tests: money/period
-  primitives, domain workflow, statements, audit trail, export, PWA endpoints,
-  web flow, CSRF, authorization, and UTF-8 form input
+- 99 hermetic tests plus 3 real-DynamoDB integration tests: money/period
+  primitives, domain workflow, statements, settings, audit trail, export, PWA
+  endpoints, web flow, CSRF, authorization, and UTF-8 form input
 
-Not implemented yet: settings UI (editing the catalog and rewards) and partial
-payouts. See the delivery plan in the proposal.
+Not implemented yet: partial payouts. See the delivery plan in the proposal.
 
 ## Prerequisites
 
@@ -137,6 +141,20 @@ chore credits it immediately without a queue item.
    The app shell is cached for fast startup; pages themselves are always fetched
    fresh because they contain household data.
 
+### The Slice 5 flow (settings)
+
+1. Log in as a parent and open **Nastavení**.
+2. Rename the household. The new name appears in the header/footer and in the
+   audit trail as a household-wide change.
+3. Rename a child, change their base monthly allowance (Czech decimal comma
+   accepted) and toggle whether they are active. An inactive child cannot log
+   chores; their history and balance stay untouched.
+4. Edit an existing chore or add a new one. Rewards only affect future
+   completions: already logged work keeps the reward that was snapshotted when
+   it was completed.
+5. Every save redirects back with a short confirmation. **Audit** shows the
+   change with the before/after values.
+
 ### Development login
 
 `DevAuthMechanism` is a development-only `HttpAuthenticationMechanism`. It is
@@ -152,8 +170,8 @@ Cognito handles authentication.
 The tests are hermetic. Web tests use `@TestSecurity`, and an in-memory
 `@Alternative` implementation of every repository replaces DynamoDB, so neither
 DynamoDB nor Cognito is needed. The suite covers money and period primitives,
-the approval workflow, statements, the audit trail, exports, PWA endpoints,
-CSRF, authorization and UTF-8 form input.
+the approval workflow, statements, settings, the audit trail, exports, PWA
+endpoints, CSRF, authorization and UTF-8 form input.
 
 Real DynamoDB behavior (transactions, condition expressions, the audit write in
 the same transaction as the change, idempotent approval and payout) is covered by
@@ -239,31 +257,30 @@ sam deploy \
     OidcLogoutUrl="https://<function-url-id>.lambda-url.eu-central-1.on.aws/"
 ```
 
-### 4. Create users
+### 4. Create users and household members
 
-Self sign-up is disabled. Create the four accounts as an administrator and add
-them to the right group:
+Self sign-up is disabled. Use the provisioning script, which creates the
+Cognito users, adds them to the right group, links each user's `sub` to a member
+record and creates the household record when missing:
 
 ```bash
-aws cognito-idp admin-create-user \
-  --user-pool-id <CognitoUserPoolId> \
-  --username mama \
-  --user-attributes Name=name,Value=Maminka \
-  --message-action SUPPRESS
+cp scripts/members.example.tsv ~/domaci-odmeny-members.tsv
+$EDITOR ~/domaci-odmeny-members.tsv
 
-aws cognito-idp admin-add-user-to-group \
-  --user-pool-id <CognitoUserPoolId> \
-  --username mama \
-  --group-name parents
+./scripts/provision-household.sh \
+  --stack-name domaci-odmeny \
+  --region eu-central-1 \
+  --members-file ~/domaci-odmeny-members.tsv
 ```
 
-Use group `children` for children. Set the first password with
-`admin-set-user-password --permanent`.
+The member file is tab-separated (`member-id`, username, display name,
+`PARENT`/`CHILD`, base allowance in whole CZK). The script prints a one-time
+password for each newly created account. Re-running it is safe: existing users
+keep their password, and member records edited in **Nastavení** keep their
+display name, allowance and active flag.
 
-> Member records in DynamoDB are not provisioned by the SAM stack yet. The
-> `cognitoSub` of each Cognito user must be linked to a member record. Until a
-> provisioning step exists, create the four `MEMBER#<id>` items in the Members
-> table and set `cognitoSub` to the Cognito user's `sub`.
+The manual Cognito commands and the member-item layout are documented in
+[`docs/deployment.md`](docs/deployment.md#4-create-the-family-accounts).
 
 ### Two-phase deployment caveat
 
@@ -303,6 +320,7 @@ src/main/java/cz/domaci/odmeny/
 ├── completion/        # logging, approval workflow, pending queue
 ├── ledger/            # append-only ledger entries and earnings
 ├── statement/         # monthly statements, close/payout/reopen, corrections
+├── settings/          # parent-only household, member and catalog settings
 ├── security/          # dev-only login mechanism and resources
 ├── infrastructure/
 │   └── dynamodb/      # client, repository adapters, local bootstrap
@@ -315,6 +333,7 @@ src/main/resources/
 
 sam/template.yaml      # Cognito, DynamoDB, Lambda + Function URL, guardrails
 compose.yaml           # DynamoDB Local for development
+scripts/               # production provisioning helper and example member file
 ```
 
 ## Design notes
@@ -355,16 +374,15 @@ compose.yaml           # DynamoDB Local for development
 
 ## Known gaps and follow-ups
 
-- Production member provisioning and Cognito `sub` linking are not automated.
-  In production the stack seeds the household and chore catalog only; member
-  records must be created and linked to Cognito users separately.
-- The proposal's settings UI (editing the catalog and rewards) is not built yet.
-  Chores are seeded and can be changed directly in DynamoDB.
+- Member provisioning is scripted in `scripts/provision-household.sh` but is
+  not part of the SAM stack. Run it once after deployment and again when a
+  member is added. The stack itself seeds only the household record and the
+  chore catalog.
+- Marking a month paid records one payout for the full remaining balance;
+  partial payouts are not supported in v1.
 - Keycloak Dev Services is not used. The dev login mechanism keeps local
   startup fast and container-free while exercising the same domain and UI code
   as production.
-- Marking a month paid records one payout for the full remaining balance;
-  partial payouts are not supported in v1.
 - The service worker caches only the app shell. Pages are intentionally
   network-only, so the app does not work fully offline; that trade-off keeps
   household data out of the browser cache.

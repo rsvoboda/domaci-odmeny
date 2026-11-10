@@ -1,5 +1,6 @@
 package cz.domaci.odmeny.infrastructure.dynamodb;
 
+import cz.domaci.odmeny.audit.AuditEvent;
 import cz.domaci.odmeny.config.AppConfig;
 import cz.domaci.odmeny.member.Member;
 import cz.domaci.odmeny.member.MemberRepository;
@@ -11,9 +12,13 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -96,6 +101,32 @@ public class DynamoMemberRepository implements MemberRepository {
 
     @Override
     public void put(Member member) {
+        client.putItem(PutItemRequest.builder()
+                .tableName(tableName())
+                .item(memberItem(member))
+                .build());
+    }
+
+    @Override
+    public void update(Member member, AuditEvent audit) {
+        Put memberPut = Put.builder()
+                .tableName(tableName())
+                .item(memberItem(member))
+                .conditionExpression("attribute_exists(PK)")
+                .build();
+
+        try {
+            client.transactWriteItems(TransactWriteItemsRequest.builder()
+                    .transactItems(
+                            TransactWriteItem.builder().put(memberPut).build(),
+                            DynamoAuditItems.put(activityTable(), audit))
+                    .build());
+        } catch (TransactionCanceledException e) {
+            throw new IllegalStateException("Member no longer exists: " + member.id(), e);
+        }
+    }
+
+    private static Map<String, AttributeValue> memberItem(Member member) {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_PK, AttributeValue.fromS(householdPk(member.householdId())));
         item.put(ATTR_SK, AttributeValue.fromS("MEMBER#" + member.id()));
@@ -106,15 +137,15 @@ public class DynamoMemberRepository implements MemberRepository {
         item.put("role", AttributeValue.fromS(member.role().name()));
         item.put("baseAllowanceMinor", AttributeValue.fromN(Long.toString(member.baseAllowance().minor())));
         item.put("active", AttributeValue.fromBool(member.active()));
-
-        client.putItem(PutItemRequest.builder()
-                .tableName(tableName())
-                .item(item)
-                .build());
+        return item;
     }
 
     private String tableName() {
         return config.dynamodb().tables().members();
+    }
+
+    private String activityTable() {
+        return config.dynamodb().tables().activity();
     }
 
     private static String householdPk(String householdId) {

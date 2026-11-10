@@ -187,6 +187,11 @@ is the recommended option once the household has several months of history.
 Cognito is the identity source. The user pool does not export passwords, so
 password recovery is always an administrative reset.
 
+Household members and Cognito links are normally provisioned with
+[`scripts/provision-household.sh`](../scripts/provision-household.sh). A re-run
+repairs a missing member item or a stale `cognitoSub` while keeping the
+app-managed display name, allowance and active flag.
+
 ### Reset a password
 
 ```bash
@@ -215,7 +220,9 @@ aws cognito-idp admin-enable-user \
 3. Read the new `sub`.
 4. Update the member item in the `Members` table so `cognitoSub` matches the new
    `sub`. The member `id`, display name, role and base allowance stay unchanged,
-   so the child's history and balance are preserved.
+   so the child's history and balance are preserved. Re-running
+   `scripts/provision-household.sh` with the same member file performs steps 1–4
+   without overwriting the app-managed member values.
 
 If the member item is also lost, recreate it with the same `id`; ledger entries
 and statements reference member ids, not Cognito subjects.
@@ -240,15 +247,18 @@ Run this after a restore, a deployment or a Cognito change.
    Expect `{"status": "UP", ...}`.
 
 2. **Sign-in** — a parent and a child can sign in with their username/password.
-3. **Authorization** — the child receives `403` for `/audit`, `/statements` and
-   `/export`; the parent can open all three.
+3. **Authorization** — the child receives `403` for `/audit`, `/statements`,
+   `/export` and `/settings`; the parent can open all four.
 4. **Money continuity** — open **Výplaty** and compare the current and previous
    month totals with the last export. Closed and paid statements must match.
-5. **Audit continuity** — open **Audit** for the current month and confirm the
+5. **Settings continuity** — open **Nastavení** and confirm the household name,
+   member names, allowances and the chore catalog match the last known state.
+   Save one value and confirm **Audit** records the change.
+6. **Audit continuity** — open **Audit** for the current month and confirm the
    most recent actions are present and attributed to the right actor.
-6. **Pending queue** — the parent home page shows the same pending items as
+7. **Pending queue** — the parent home page shows the same pending items as
    before the incident (or none, if the queue was empty).
-7. **Export** — download `/export/data.json` and confirm it parses as JSON and
+8. **Export** — download `/export/data.json` and confirm it parses as JSON and
    contains the expected member count.
 
 Record the verification result and the backup used in the incident notes.

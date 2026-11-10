@@ -98,7 +98,7 @@ public final class Views {
                 event.actorName(),
                 event.action().label(),
                 event.action().kind(),
-                event.memberName(),
+                event.memberName() == null ? "Domácnost" : event.memberName(),
                 event.details() == null ? "" : event.details());
     }
 
@@ -231,6 +231,44 @@ public final class Views {
             String description,
             String amountText,
             int count) {
+    }
+
+    public static MemberSettingsView memberSettings(Member member) {
+        return new MemberSettingsView(
+                member.id(),
+                member.displayName(),
+                member.role().label(),
+                !member.isParent(),
+                Formats.amountInput(member.baseAllowance()),
+                member.active());
+    }
+
+    public static TaskSettingsView taskSettings(Task task) {
+        return new TaskSettingsView(
+                task.id(),
+                task.name(),
+                task.description(),
+                Formats.amountInput(task.reward()),
+                task.requiresApproval(),
+                task.active());
+    }
+
+    public record MemberSettingsView(
+            String id,
+            String displayName,
+            String roleLabel,
+            boolean child,
+            String baseText,
+            boolean active) {
+    }
+
+    public record TaskSettingsView(
+            String id,
+            String name,
+            String description,
+            String rewardText,
+            boolean requiresApproval,
+            boolean active) {
     }
 
     public record AuditView(

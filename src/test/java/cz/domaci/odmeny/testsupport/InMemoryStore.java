@@ -156,6 +156,15 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
         putMember(member);
     }
 
+    @Override
+    public synchronized void update(Member member, AuditEvent audit) {
+        if (!members.containsKey(member.id())) {
+            throw new IllegalStateException("Member no longer exists: " + member.id());
+        }
+        putMember(member);
+        putAudit(audit);
+    }
+
     // HouseholdRepository ----------------------------------------------------
 
     @Override
@@ -166,6 +175,15 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     @Override
     public synchronized void put(Household household) {
         this.household = household;
+    }
+
+    @Override
+    public synchronized void update(Household household, AuditEvent audit) {
+        if (this.household == null || !this.household.id().equals(household.id())) {
+            throw new IllegalStateException("Household no longer exists: " + household.id());
+        }
+        this.household = household;
+        putAudit(audit);
     }
 
     // TaskRepository ---------------------------------------------------------
@@ -186,6 +204,24 @@ public class InMemoryStore implements MemberRepository, HouseholdRepository, Tas
     @Override
     public synchronized void put(Task task) {
         putTask(task);
+    }
+
+    @Override
+    public synchronized void create(Task task, AuditEvent audit) {
+        if (tasks.containsKey(task.id())) {
+            throw new IllegalStateException("Task already exists: " + task.id());
+        }
+        putTask(task);
+        putAudit(audit);
+    }
+
+    @Override
+    public synchronized void update(Task task, AuditEvent audit) {
+        if (!tasks.containsKey(task.id())) {
+            throw new IllegalStateException("Task no longer exists: " + task.id());
+        }
+        putTask(task);
+        putAudit(audit);
     }
 
     // CompletionRepository ---------------------------------------------------

@@ -13,7 +13,8 @@ import java.util.Objects;
  * transaction as the change itself, so the trail cannot silently diverge from
  * the data.
  *
- * @param memberId   the child affected by the change
+ * @param memberId   the member affected by the change, or {@code null} for a
+ *                   household-wide change such as renaming the household
  * @param memberName display name captured at the time of the change
  * @param details    short human-readable context (task, note, reason, amount)
  */
@@ -37,7 +38,13 @@ public record AuditEvent(
         Objects.requireNonNull(actorId, "actorId");
         Objects.requireNonNull(actorName, "actorName");
         Objects.requireNonNull(action, "action");
-        Objects.requireNonNull(memberId, "memberId");
-        Objects.requireNonNull(memberName, "memberName");
+    }
+
+    /**
+     * True when the event does not belong to one member (for example a catalog
+     * or household-name change).
+     */
+    public boolean householdWide() {
+        return memberId == null;
     }
 }

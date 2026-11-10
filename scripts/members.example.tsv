@@ -1,0 +1,14 @@
+# Member definitions for scripts/provision-household.sh
+#
+# Columns, separated by a TAB:
+#   member-id   cognito-username   display-name   PARENT|CHILD   base-allowance-CZK
+#
+# Copy this file to a location outside the repository, replace the values with
+# your family's real names, and pass it with --members-file.
+# The allowance is a whole number of Czech crowns; 0 means no base allowance.
+#
+# Example (replace with real values; do not commit personal data):
+parent-1	mama	Maminka	PARENT	0
+parent-2	tata	Táta	PARENT	0
+child-1	anna	Anička	CHILD	50
+child-2	petr	Petřík	CHILD	50

@@ -35,6 +35,14 @@ public record Flash(String text, String kind) {
             case "missing" -> Optional.of(new Flash("Práce nebyla nalezena.", ERROR));
             case "profile" -> Optional.of(new Flash("Váš účet zatím není propojen s členem domácnosti.", ERROR));
             case "storage" -> Optional.of(new Flash("Databáze není dostupná. Zkuste to prosím později.", ERROR));
+            case "household-saved" -> Optional.of(new Flash("Název domácnosti byl uložen.", SUCCESS));
+            case "member-saved" -> Optional.of(new Flash("Údaje člena byly uloženy.", SUCCESS));
+            case "task-added" -> Optional.of(new Flash("Práce byla přidána do katalogu.", SUCCESS));
+            case "task-saved" -> Optional.of(new Flash("Práce byla upravena.", SUCCESS));
+            case "settings-invalid" -> Optional.of(new Flash(
+                    "Zadané údaje nejsou platné. Zkontrolujte je prosím.", ERROR));
+            case "settings-conflict" -> Optional.of(new Flash(
+                    "Nastavení se mezitím změnilo. Načtěte stránku znovu.", WARNING));
             default -> Optional.empty();
         };
     }

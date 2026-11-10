@@ -1,0 +1,114 @@
+{#include layout}
+{#title}Nastavení — {appName}{/title}
+{#body}
+<hgroup>
+    <h1>Nastavení</h1>
+    <p>Domácnost, členové a katalog domácích prací.</p>
+</hgroup>
+
+{#if storageUnavailable}
+<article class="notice">
+    <header><strong>Databáze není dostupná</strong></header>
+    <p>Lokální DynamoDB neběží. Spusťte <code>podman compose up -d dynamodb</code> a restartujte aplikaci.</p>
+</article>
+{#else}
+
+<article>
+    <header><strong>Domácnost</strong></header>
+    <form method="post" action="/settings/household" class="stacked-form">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <label>Název domácnosti
+            <input type="text" name="name" value="{householdName}" required maxlength="60">
+        </label>
+        <button type="submit">Uložit název</button>
+    </form>
+</article>
+
+<h2>Členové</h2>
+{#for member in members}
+<article>
+    <header>
+        <strong>{member.displayName}</strong>
+        <span class="badge">{member.roleLabel}</span>
+        {#if !member.active}<span class="badge rejected">neaktivní</span>{/if}
+    </header>
+    <form method="post" action="/settings/members/{member.id}" class="stacked-form">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <label>Jméno
+            <input type="text" name="displayName" value="{member.displayName}" required maxlength="60">
+        </label>
+        {#if member.child}
+        <label>Základní měsíční odměna (Kč)
+            <input type="text" name="baseAllowance" value="{member.baseText}" inputmode="decimal" required>
+        </label>
+        <label>
+            <input type="checkbox" name="active" {#if member.active}checked{/if}>
+            Aktivní (může zapisovat práce)
+        </label>
+        {/if}
+        <button type="submit">Uložit člena</button>
+    </form>
+</article>
+{/for}
+
+<h2>Katalog prací</h2>
+{#for task in tasks}
+<article>
+    <header>
+        <strong>{task.name}</strong>
+        {#if !task.active}<span class="badge rejected">neaktivní</span>{/if}
+        {#if task.requiresApproval}<span class="badge pending">schvaluje rodič</span>{/if}
+    </header>
+    <form method="post" action="/settings/tasks" class="stacked-form">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <input type="hidden" name="taskId" value="{task.id}">
+        <label>Název
+            <input type="text" name="name" value="{task.name}" required maxlength="80">
+        </label>
+        <label>Popis
+            <input type="text" name="description" value="{task.description}" maxlength="200">
+        </label>
+        <label>Odměna (Kč)
+            <input type="text" name="reward" value="{task.rewardText}" inputmode="decimal" required>
+        </label>
+        <label>
+            <input type="checkbox" name="requiresApproval" {#if task.requiresApproval}checked{/if}>
+            Vyžaduje schválení rodičem
+        </label>
+        <label>
+            <input type="checkbox" name="active" {#if task.active}checked{/if}>
+            Aktivní
+        </label>
+        <button type="submit">Uložit práci</button>
+    </form>
+</article>
+{/for}
+
+<article>
+    <header><strong>Nová práce</strong></header>
+    <form method="post" action="/settings/tasks" class="stacked-form">
+        <input type="hidden" name="csrf-token" value="{inject:csrf.token}">
+        <label>Název
+            <input type="text" name="name" required maxlength="80" placeholder="Např. Umytí nádobí">
+        </label>
+        <label>Popis
+            <input type="text" name="description" maxlength="200" placeholder="Volitelný popis">
+        </label>
+        <label>Odměna (Kč)
+            <input type="text" name="reward" inputmode="decimal" required placeholder="10">
+        </label>
+        <label>
+            <input type="checkbox" name="requiresApproval" checked>
+            Vyžaduje schválení rodičem
+        </label>
+        <label>
+            <input type="checkbox" name="active" checked>
+            Aktivní
+        </label>
+        <button type="submit">Přidat práci</button>
+    </form>
+</article>
+
+{/if}
+{/body}
+{/include}

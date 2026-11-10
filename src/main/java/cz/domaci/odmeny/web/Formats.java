@@ -27,6 +27,19 @@ public final class Formats {
         return MoneyFormat.format(money);
     }
 
+    /**
+     * An editable amount without the currency suffix, using a Czech decimal
+     * comma ({@code 50}, {@code 50,50}).
+     */
+    public static String amountInput(Money money) {
+        if (money.minor() % 100 == 0) {
+            return Long.toString(money.minor() / 100);
+        }
+        return java.math.BigDecimal.valueOf(money.minor(), 2)
+                .toPlainString()
+                .replace('.', ',');
+    }
+
     public static String dateTime(Instant instant, ZoneId zone) {
         return DATE_TIME.format(instant.atZone(zone));
     }

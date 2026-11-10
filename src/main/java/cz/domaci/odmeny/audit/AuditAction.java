@@ -13,7 +13,12 @@ public enum AuditAction {
     ADJUSTMENT_ADDED("Úprava výpisu", "adjusted"),
     MONTH_CLOSED("Měsíc uzavřen", "closed"),
     MONTH_PAID("Měsíc vyplacen", "paid"),
-    MONTH_REOPENED("Měsíc znovu otevřen", "reopened");
+    MONTH_REOPENED("Měsíc znovu otevřen", "reopened"),
+    MEMBER_RENAMED("Člen přejmenován", "updated"),
+    MEMBER_UPDATED("Člen upraven", "updated"),
+    TASK_CREATED("Práce přidána", "created"),
+    TASK_UPDATED("Práce upravena", "updated"),
+    HOUSEHOLD_RENAMED("Domácnost přejmenována", "updated");
 
     private final String label;
     private final String kind;

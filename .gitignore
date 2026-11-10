@@ -12,3 +12,9 @@ samconfig.toml
 samconfig.yaml
 sam/.aws-sam/
 .aws-sam/
+
+# Real household member definitions contain personal data
+members.tsv
+*-members.tsv
+scripts/members.*.tsv
+!scripts/members.example.tsv

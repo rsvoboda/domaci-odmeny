@@ -1,5 +1,6 @@
 package cz.domaci.odmeny.infrastructure.dynamodb;
 
+import cz.domaci.odmeny.audit.AuditEvent;
 import cz.domaci.odmeny.config.AppConfig;
 import cz.domaci.odmeny.shared.Money;
 import cz.domaci.odmeny.task.Task;
@@ -10,9 +11,13 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -83,6 +88,41 @@ public class DynamoTaskRepository implements TaskRepository {
 
     @Override
     public void put(Task task) {
+        client.putItem(PutItemRequest.builder()
+                .tableName(tableName())
+                .item(taskItem(task))
+                .build());
+    }
+
+    @Override
+    public void create(Task task, AuditEvent audit) {
+        writeWithAudit(task, audit, "attribute_not_exists(PK)");
+    }
+
+    @Override
+    public void update(Task task, AuditEvent audit) {
+        writeWithAudit(task, audit, "attribute_exists(PK)");
+    }
+
+    private void writeWithAudit(Task task, AuditEvent audit, String condition) {
+        Put taskPut = Put.builder()
+                .tableName(tableName())
+                .item(taskItem(task))
+                .conditionExpression(condition)
+                .build();
+
+        try {
+            client.transactWriteItems(TransactWriteItemsRequest.builder()
+                    .transactItems(
+                            TransactWriteItem.builder().put(taskPut).build(),
+                            DynamoAuditItems.put(activityTable(), audit))
+                    .build());
+        } catch (TransactionCanceledException e) {
+            throw new IllegalStateException("Task was changed concurrently: " + task.id(), e);
+        }
+    }
+
+    private static Map<String, AttributeValue> taskItem(Task task) {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("PK", AttributeValue.fromS(householdPk(task.householdId())));
         item.put("SK", AttributeValue.fromS("TASK#" + task.id()));
@@ -95,15 +135,15 @@ public class DynamoTaskRepository implements TaskRepository {
         item.put("requiresApproval", AttributeValue.fromBool(task.requiresApproval()));
         item.put("active", AttributeValue.fromBool(task.active()));
         item.put("sortOrder", AttributeValue.fromN(Integer.toString(task.sortOrder())));
-
-        client.putItem(PutItemRequest.builder()
-                .tableName(tableName())
-                .item(item)
-                .build());
+        return item;
     }
 
     private String tableName() {
         return config.dynamodb().tables().tasks();
+    }
+
+    private String activityTable() {
+        return config.dynamodb().tables().activity();
     }
 
     private static String householdPk(String householdId) {

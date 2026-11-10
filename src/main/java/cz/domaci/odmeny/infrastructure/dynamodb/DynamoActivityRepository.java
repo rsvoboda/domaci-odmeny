@@ -72,7 +72,6 @@ public class DynamoActivityRepository
     private static final String ENTITY_STATEMENT = "STATEMENT";
     private static final String ENTITY_AUDIT = "AUDIT";
     private static final String PENDING_PK = "PENDING";
-    private static final String AUDIT_PREFIX = "AUDIT#";
 
     private final DynamoDbClient client;
     private final AppConfig config;
@@ -90,7 +89,7 @@ public class DynamoActivityRepository
         transact(
                 put(activityTable(), completionItem(completion)),
                 put(pendingTable(), pendingItem(pending)),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     @Override
@@ -98,7 +97,7 @@ public class DynamoActivityRepository
         transact(
                 put(activityTable(), completionItem(completion)),
                 put(activityTable(), ledgerItem(ledgerEntry)),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     @Override
@@ -124,7 +123,7 @@ public class DynamoActivityRepository
                 TransactWriteItem.builder().update(update).build(),
                 put(activityTable(), ledgerItem(ledgerEntry)),
                 deletePending(completion),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     @Override
@@ -150,7 +149,7 @@ public class DynamoActivityRepository
         transact(
                 TransactWriteItem.builder().update(update).build(),
                 deletePending(completion),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     @Override
@@ -212,7 +211,7 @@ public class DynamoActivityRepository
                 .build();
         transactStatements(
                 TransactWriteItem.builder().put(ledgerPut).build(),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     // StatementRepository ----------------------------------------------------
@@ -253,7 +252,7 @@ public class DynamoActivityRepository
 
         transactStatements(
                 TransactWriteItem.builder().put(statementPut).build(),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     @Override
@@ -271,7 +270,7 @@ public class DynamoActivityRepository
 
         transactStatements(
                 TransactWriteItem.builder().put(statementPut).build(),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     @Override
@@ -287,7 +286,7 @@ public class DynamoActivityRepository
         transactStatements(
                 TransactWriteItem.builder().put(statementPut).build(),
                 put(activityTable(), ledgerItem(payout)),
-                put(activityTable(), auditItem(audit)));
+                DynamoAuditItems.put(activityTable(), audit));
     }
 
     // AuditRepository --------------------------------------------------------
@@ -297,7 +296,7 @@ public class DynamoActivityRepository
         try {
             client.putItem(PutItemRequest.builder()
                     .tableName(activityTable())
-                    .item(auditItem(event))
+                    .item(DynamoAuditItems.item(event))
                     .conditionExpression("attribute_not_exists(PK)")
                     .build());
         } catch (ConditionalCheckFailedException e) {
@@ -307,7 +306,8 @@ public class DynamoActivityRepository
 
     @Override
     public List<AuditEvent> listByPeriod(Period period) {
-        return query(activityTable(), auditPrefix(period), AUDIT_PREFIX).stream()
+        return query(activityTable(), DynamoAuditItems.periodPrefix(period),
+                DynamoAuditItems.sortKeyPrefix()).stream()
                 .filter(item -> ENTITY_AUDIT.equals(string(item, "entityType")))
                 .map(DynamoActivityRepository::toAuditEvent)
                 .toList();
@@ -474,24 +474,6 @@ public class DynamoActivityRepository
         return item;
     }
 
-    private static Map<String, AttributeValue> auditItem(AuditEvent event) {
-        Map<String, AttributeValue> item = new HashMap<>();
-        item.put("PK", AttributeValue.fromS(auditPrefix(event.period())));
-        item.put("SK", AttributeValue.fromS(auditSk(event)));
-        item.put("entityType", AttributeValue.fromS(ENTITY_AUDIT));
-        item.put("id", AttributeValue.fromS(event.id()));
-        item.put("householdId", AttributeValue.fromS(event.householdId()));
-        item.put("period", AttributeValue.fromS(event.period().value()));
-        item.put("occurredAtEpochMilli", AttributeValue.fromN(Long.toString(event.occurredAt().toEpochMilli())));
-        item.put("actorId", AttributeValue.fromS(event.actorId()));
-        item.put("actorName", AttributeValue.fromS(event.actorName()));
-        item.put("action", AttributeValue.fromS(event.action().name()));
-        item.put("memberId", AttributeValue.fromS(event.memberId()));
-        item.put("memberName", AttributeValue.fromS(event.memberName()));
-        putString(item, "details", event.details());
-        return item;
-    }
-
     private static Map<String, AttributeValue> pendingItem(PendingCompletion pending) {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("PK", AttributeValue.fromS(PENDING_PK));
@@ -626,14 +608,6 @@ public class DynamoActivityRepository
 
     private static String pendingSk(Instant createdAt, String completionId) {
         return "CREATED#" + paddedMillis(createdAt) + "#" + completionId;
-    }
-
-    private static String auditPrefix(Period period) {
-        return AUDIT_PREFIX + period.value();
-    }
-
-    private static String auditSk(AuditEvent event) {
-        return AUDIT_PREFIX + paddedMillis(event.occurredAt()) + "#" + event.id();
     }
 
     private static String memberPk(String memberId) {

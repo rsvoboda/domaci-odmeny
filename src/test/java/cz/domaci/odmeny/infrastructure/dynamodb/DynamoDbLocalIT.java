@@ -11,7 +11,10 @@ import cz.domaci.odmeny.member.Member;
 import cz.domaci.odmeny.member.MemberService;
 import cz.domaci.odmeny.shared.Money;
 import cz.domaci.odmeny.shared.Period;
+import cz.domaci.odmeny.settings.SettingsService;
 import cz.domaci.odmeny.statement.StatementService;
+import cz.domaci.odmeny.task.Task;
+import cz.domaci.odmeny.task.TaskService;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
@@ -23,8 +26,8 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.BatchWriteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.DeleteRequest;
-import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
-import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 import software.amazon.awssdk.services.dynamodb.model.WriteRequest;
 
 import java.util.ArrayList;
@@ -54,6 +57,7 @@ class DynamoDbLocalIT {
 
     private static final String ACTIVITY_TABLE = "ActivityIT";
     private static final String PENDING_TABLE = "PendingIT";
+    private static final String TASKS_TABLE = "TasksIT";
 
     @Inject
     DynamoDbClient client;
@@ -72,6 +76,12 @@ class DynamoDbLocalIT {
 
     @Inject
     HouseholdService household;
+
+    @Inject
+    SettingsService settings;
+
+    @Inject
+    TaskService tasks;
 
     @BeforeEach
     void clearActivity() {
@@ -133,6 +143,62 @@ class DynamoDbLocalIT {
 
         assertEquals(before, audits.listAll(period).size());
         assertEquals(2, audits.list(period).size());
+    }
+
+    @Test
+    void settingsChangesAndAuditsAreCommittedTogetherInRealDynamoDb() {
+        Member parent = member("dev-parent-1");
+        Member child = member("dev-child-1");
+        Period period = household.currentPeriod();
+
+        String originalHousehold = household.name();
+        String originalChildName = child.displayName();
+        Money originalBase = child.baseAllowance();
+        boolean originalActive = child.active();
+        Task created = null;
+
+        try {
+            settings.renameHousehold(parent, "IT domácnost");
+            assertEquals("IT domácnost", household.name());
+
+            settings.updateMember(parent, child.id(), "IT Dítě", Money.czk(60), true);
+            Member updated = members.findById(child.id()).orElseThrow();
+            assertEquals("IT Dítě", updated.displayName());
+            assertEquals(Money.czk(60), updated.baseAllowance());
+
+            created = settings.saveTask(parent, null, "IT práce", "Integrační test",
+                    Money.czk(15), true, true);
+            settings.saveTask(parent, created.id(), created.name(), created.description(),
+                    Money.czk(20), false, true);
+
+            String createdId = created.id();
+
+            Task saved = tasks.listAll().stream()
+                    .filter(task -> task.id().equals(createdId))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(Money.czk(20), saved.reward());
+
+            List<AuditAction> actions = audits.list(period).stream()
+                    .map(AuditEvent::action)
+                    .toList();
+            assertTrue(actions.containsAll(List.of(
+                    AuditAction.HOUSEHOLD_RENAMED,
+                    AuditAction.MEMBER_UPDATED,
+                    AuditAction.TASK_CREATED,
+                    AuditAction.TASK_UPDATED)));
+        } finally {
+            if (created != null) {
+                client.deleteItem(DeleteItemRequest.builder()
+                        .tableName(TASKS_TABLE)
+                        .key(Map.of(
+                                "PK", AttributeValue.fromS("HOUSEHOLD#it-household"),
+                                "SK", AttributeValue.fromS("TASK#" + created.id())))
+                        .build());
+            }
+            settings.updateMember(parent, child.id(), originalChildName, originalBase, originalActive);
+            settings.renameHousehold(parent, originalHousehold);
+        }
     }
 
     private boolean reachable() {

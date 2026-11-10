@@ -188,6 +188,16 @@ li.pending-item:last-child {
     color: white;
 }
 
+.badge.created {
+    background: var(--pico-ins-color);
+    color: white;
+}
+
+.badge.updated {
+    background: var(--pico-secondary);
+    color: white;
+}
+
 .badge.closed {
     background: var(--pico-secondary);
     color: white;

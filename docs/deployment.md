@@ -107,8 +107,61 @@ explicitly.
 
 ## 4. Create the family accounts
 
-Self sign-up is disabled. Create each account as an administrator and add it to
-the correct group.
+Self sign-up is disabled. Accounts and household members are provisioned with
+[`scripts/provision-household.sh`](../scripts/provision-household.sh), which
+creates the Cognito users, adds them to the `parents` or `children` group, links
+each user's `sub` to a member item, and creates the household record when it is
+missing.
+
+The script is idempotent. A newly created user gets a generated one-time
+password printed once; an existing member item keeps the display name, base
+allowance and active flag that parents may have changed in **Nastavení**.
+
+### Prepare the member file
+
+Copy the example outside the repository so personal data is never committed:
+
+```bash
+cp scripts/members.example.tsv ~/domaci-odmeny-members.tsv
+$EDITOR ~/domaci-odmeny-members.tsv
+```
+
+The file is tab-separated:
+
+```text
+member-id   cognito-username   display-name   PARENT|CHILD   base-allowance-CZK
+parent-1    mama               Maminka        PARENT         0
+parent-2    tata               Táta           PARENT         0
+child-1     anna               Anička         CHILD          50
+child-2     petr               Petřík         CHILD          50
+```
+
+The allowance is a whole number of Czech crowns and is stored in haléře. `0`
+means no base allowance. Member ids are stable; ledger entries and statements
+reference them, so do not change an id after the household starts using the app.
+
+### Run the provisioning script
+
+```bash
+./scripts/provision-household.sh \
+  --stack-name domaci-odmeny \
+  --region eu-central-1 \
+  --members-file ~/domaci-odmeny-members.tsv
+```
+
+It reads `CognitoUserPoolId` and `MembersTable` from the stack outputs. Keep the
+printed passwords safe and change them after the first sign-in. Re-run the same
+command after adding a member; existing users and member records are left
+intact.
+
+The household record and the chore catalog are seeded automatically on first
+start when `SEED_CATALOG=true` (the default in production). The seeded chores are
+`Odpadky` (10 Kč), `Myčka` (10 Kč) and `Vysávání` (20 Kč); parents can change
+them in **Nastavení**.
+
+### Manual alternative
+
+If the script cannot be used, create one account with the AWS CLI:
 
 ```bash
 aws cognito-idp admin-create-user \
@@ -121,22 +174,15 @@ aws cognito-idp admin-add-user-to-group \
   --user-pool-id <CognitoUserPoolId> \
   --username mama \
   --group-name parents
+
+aws cognito-idp admin-set-user-password \
+  --user-pool-id <CognitoUserPoolId> \
+  --username mama \
+  --password '<a permanent password>' \
+  --permanent
 ```
 
-Use the `children` group for children. Set the first password with
-`admin-set-user-password --permanent`.
-
-The stack outputs `CognitoUserPoolId`, `CognitoClientId` and
-`CognitoHostedUiDomain`.
-
-### Link Cognito users to household members
-
-Authentication and household membership are separate records. The application
-resolves the signed-in Cognito user to a `MEMBER#<id>` item by matching the
-Cognito `sub` claim to the member's `cognitoSub`.
-
-Member provisioning is not automated yet. After creating each Cognito user,
-read its `sub`:
+Then read the `sub` and create the member item yourself:
 
 ```bash
 aws cognito-idp admin-get-user \
@@ -146,8 +192,7 @@ aws cognito-idp admin-get-user \
   --output text
 ```
 
-Then create the matching item in the `Members` table. The table is
-`<stack-name>-Members` and uses the keys `PK` and `SK`:
+The `Members` table is `<stack-name>-Members` and uses the keys `PK` and `SK`:
 
 | Attribute | Value |
 |---|---|
@@ -162,21 +207,22 @@ Then create the matching item in the `Members` table. The table is
 | `baseAllowanceMinor` | base monthly amount in haléře, e.g. `5000` |
 | `active` | `true` |
 
-The household record and the chore catalog are seeded automatically on first
-start when `SEED_CATALOG=true` (the default in production). The seeded chores are
-`Odpadky` (10 Kč), `Myčka` (10 Kč) and `Vysávání` (20 Kč).
-
 ## 5. Verify the deployment
 
 1. Open the `FunctionUrl` output in a browser.
 2. Sign in with a parent account. The parent home page shows the approval queue
    and the children's monthly totals.
-3. Open **Výplaty**, **Audit** and **Export**. All three pages must render.
-4. Sign in with a child account. The child sees only their own chores, history
-   and statement; `/audit`, `/statements`, `/export` return `403`.
-5. Log a chore as the child, approve it as the parent, and confirm the reward
+3. Open **Výplaty**, **Audit**, **Export** and **Nastavení**. All four pages must
+   render.
+4. In **Nastavení**, rename the household, rename a child, change the child's
+   base allowance and add a chore. Reload the page; the values must persist.
+   **Audit** must show the household rename, the member update and the new chore.
+5. Sign in with a child account. The child sees only their own chores, history
+   and statement; `/audit`, `/statements`, `/export` and `/settings` return
+   `403`.
+6. Log a chore as the child, approve it as the parent, and confirm the reward
    appears on the child's current-month total and in **Audit**.
-6. Check the health endpoint:
+7. Check the health endpoint:
 
    ```bash
    curl -s https://<function-url-id>.lambda-url.eu-central-1.on.aws/q/health
