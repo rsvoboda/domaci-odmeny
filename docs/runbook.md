@@ -7,7 +7,8 @@ guardrails for **Domácí odměny**. Deployment steps are in
 ## Service summary
 
 - **Compute:** one AWS Lambda function behind a Function URL, region
-  `eu-central-1`.
+  `eu-north-1` (the account's SCP only permits this region; see
+  [ADR-0009](adr/0009-deploy-to-eu-north-1-with-free-plan-limits.md)).
 - **Data:** four provisioned DynamoDB tables, each 5 RCU / 5 WCU:
   `Members`, `Tasks`, `Activity`, `Pending`.
 - **Identity:** Amazon Cognito user pool with `parents` and `children` groups.
@@ -51,7 +52,7 @@ recreate:
 ```bash
 for table in Members Tasks Activity Pending; do
   aws dynamodb update-continuous-backups \
-    --region eu-central-1 \
+    --region eu-north-1 \
     --table-name "domaci-odmeny-$table" \
     --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true
 done
@@ -61,7 +62,7 @@ Check the status:
 
 ```bash
 aws dynamodb describe-continuous-backups \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --table-name domaci-odmeny-Activity \
   --query "ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus"
 ```
@@ -72,7 +73,7 @@ aws dynamodb describe-continuous-backups \
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 for table in Members Tasks Activity Pending; do
   aws dynamodb create-backup \
-    --region eu-central-1 \
+    --region eu-north-1 \
     --table-name "domaci-odmeny-$table" \
     --backup-name "domaci-odmeny-$table-$STAMP"
 done
@@ -82,7 +83,7 @@ List backups:
 
 ```bash
 aws dynamodb list-backups \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --query "BackupSummaries[?contains(BackupName, 'domaci-odmeny')].[BackupName,BackupStatus,BackupCreationDateTime]" \
   --output table
 ```
@@ -102,7 +103,7 @@ This is the safe option because it leaves the current tables untouched.
 
    ```bash
    aws lambda put-function-concurrency \
-     --region eu-central-1 \
+     --region eu-north-1 \
      --function-name domaci-odmeny-app \
      --reserved-concurrent-executions 0
    ```
@@ -111,7 +112,7 @@ This is the safe option because it leaves the current tables untouched.
 
    ```bash
    aws dynamodb restore-table-from-backup \
-     --region eu-central-1 \
+     --region eu-north-1 \
      --target-table-name "domaci-odmeny-Activity-restored" \
      --backup-arn "<backup-arn>"
    ```
@@ -120,7 +121,7 @@ This is the safe option because it leaves the current tables untouched.
    `ACTIVE`:
 
    ```bash
-   aws dynamodb wait table-exists --region eu-central-1 --table-name domaci-odmeny-Activity-restored
+   aws dynamodb wait table-exists --region eu-north-1 --table-name domaci-odmeny-Activity-restored
    ```
 
 3. Point the Lambda at the restored tables by updating the environment
@@ -133,7 +134,7 @@ This is the safe option because it leaves the current tables untouched.
 
    ```bash
    aws lambda put-function-concurrency \
-     --region eu-central-1 \
+     --region eu-north-1 \
      --function-name domaci-odmeny-app \
      --reserved-concurrent-executions 5
    ```
@@ -151,13 +152,13 @@ requires deleting the current table, so take an on-demand backup first.
 ```bash
 # 1. Take a safety backup of the current table.
 aws dynamodb create-backup \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --table-name domaci-odmeny-Activity \
   --backup-name "pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
 
 # 2. Restore the table to a new name, then follow option A.
 aws dynamodb restore-table-to-point-in-time \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --source-table-name domaci-odmeny-Activity \
   --target-table-name domaci-odmeny-Activity-restored \
   --restore-date-time "2026-11-09T20:00:00Z"
@@ -241,7 +242,7 @@ Run this after a restore, a deployment or a Cognito change.
 1. **Health**
 
    ```bash
-   curl -s https://<function-url-id>.lambda-url.eu-central-1.on.aws/q/health
+   curl -s https://<function-url-id>.lambda-url.eu-north-1.on.aws/q/health
    ```
 
    Expect `{"status": "UP", ...}`.
@@ -268,14 +269,22 @@ Record the verification result and the backup used in the incident notes.
 The stack is designed to stay inside the AWS free tier:
 
 - Four provisioned DynamoDB tables at 5 RCU / 5 WCU.
-- Lambda memory 1024 MB and reserved concurrency 5.
+- Lambda memory 512 MB (the Free-plan cap) and reserved concurrency 5.
 - CloudWatch log retention 7 days.
 - No NAT gateway, no load balancer, no always-on compute.
 
-The SAM template creates a $1 monthly budget with two email notifications:
+The optional `scripts/create-budget.sh` creates a $1 monthly budget with two
+email notifications (the SAM stack cannot create it because
+`AWS::Budgets::Budget` is not supported in `eu-north-1`):
 
 - **Actual 80%** — spend has already crossed 80% of the budget.
 - **Forecasted 100%** — the projected month-end spend will exceed the budget.
+
+To recreate or change the alerts:
+
+```bash
+./scripts/create-budget.sh --email you@example.com --amount 1
+```
 
 ### When a budget alert fires
 

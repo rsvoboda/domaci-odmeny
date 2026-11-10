@@ -25,19 +25,14 @@ Parameters:
       Stable secret (at least 32 characters) used to encrypt the OIDC session
       cookie. Keep the same value across deployments so sessions survive.
 
-  BudgetAlertEmail:
-    Type: String
-    Default: ""
-    Description: Optional email address for the monthly AWS budget alert.
-
   LambdaMemorySize:
     Type: Number
-    Default: 1024
+    Default: 512
     MinValue: 512
     MaxValue: 2048
-
-Conditions:
-  HasBudgetAlertEmail: !Not [!Equals [!Ref BudgetAlertEmail, ""]]
+    Description: >-
+      Lambda memory in MB. The default is 512 because the AWS Free plan caps
+      functions at 512 MB; raise it only on an account that allows more.
 
 Resources:
   # -------------------------------------------------------------------------
@@ -306,34 +301,6 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-
-  MonthlyBudget:
-    Type: AWS::Budgets::Budget
-    Properties:
-      Budget:
-        BudgetName: !Sub "${AWS::StackName}-monthly"
-        BudgetType: COST
-        TimeUnit: MONTHLY
-        BudgetLimit:
-          Amount: 1
-          Unit: USD
-      NotificationsWithSubscribers: !If
-        - HasBudgetAlertEmail
-        - - Notification:
-              NotificationType: ACTUAL
-              ComparisonOperator: GREATER_THAN
-              Threshold: 80
-            Subscribers:
-              - SubscriptionType: EMAIL
-                Address: !Ref BudgetAlertEmail
-          - Notification:
-              NotificationType: FORECASTED
-              ComparisonOperator: GREATER_THAN
-              Threshold: 100
-            Subscribers:
-              - SubscriptionType: EMAIL
-                Address: !Ref BudgetAlertEmail
-        - !Ref AWS::NoValue
 
 Outputs:
   FunctionUrl:

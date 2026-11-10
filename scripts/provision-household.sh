@@ -16,13 +16,13 @@
 # Usage:
 #   ./scripts/provision-household.sh \
 #     --stack-name domaci-odmeny \
-#     --region eu-central-1 \
+#     --region eu-north-1 \
 #     --members-file scripts/members.example.tsv
 #
 set -euo pipefail
 
 STACK_NAME="${STACK_NAME:-domaci-odmeny}"
-REGION="${AWS_REGION:-eu-central-1}"
+REGION="${AWS_REGION:-eu-north-1}"
 MEMBERS_FILE=""
 HOUSEHOLD_ID="${HOUSEHOLD_ID:-default}"
 HOUSEHOLD_NAME=""
@@ -34,7 +34,7 @@ Usage: provision-household.sh [options]
 
 Options:
   --stack-name NAME       CloudFormation stack name (default: domaci-odmeny)
-  --region REGION         AWS region (default: eu-central-1)
+  --region REGION         AWS region (default: eu-north-1)
   --members-file FILE     Tab-separated member definitions
                           (default: scripts/members.example.tsv)
   --household-id ID       Household id (default: default)

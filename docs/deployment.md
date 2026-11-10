@@ -6,7 +6,16 @@ procedures (backups, restore, user recovery) live in
 [`runbook.md`](runbook.md).
 
 The stack is defined in [`sam/template.yaml`](../sam/template.yaml) and is
-deployed with the AWS SAM CLI. The default region is `eu-central-1`.
+deployed with the AWS SAM CLI. The default region is `eu-north-1`.
+
+> **Environment constraints.** The target account has an Organizations service
+> control policy (`p-glnwopnj`) that explicitly denies CloudFormation, Lambda,
+> DynamoDB, Cognito and most other services outside `eu-north-1` (Stockholm).
+> The AWS Free plan also caps Lambda memory at 512 MB, which is the template
+> default. `AWS::Budgets::Budget` is not a CloudFormation resource type in
+> `eu-north-1`, so the optional budget is created by a script. See
+> [ADR-0009](adr/0009-deploy-to-eu-north-1-with-free-plan-limits.md). The
+> application still uses `Europe/Prague` accounting periods.
 
 ## What gets created
 
@@ -17,7 +26,7 @@ deployed with the AWS SAM CLI. The default region is `eu-central-1`.
 | Four DynamoDB tables (`Members`, `Tasks`, `Activity`, `Pending`) | Provisioned 5 RCU / 5 WCU each, no GSIs, retained on stack deletion |
 | CloudWatch log group | Lambda logs with 7-day retention |
 | CloudWatch alarms | Lambda errors and throttles |
-| AWS Budget | $1 monthly budget with an 80% actual and 100% forecasted email alert |
+| Optional AWS Budget | $1 monthly budget with 80% actual and 100% forecasted email alerts, created by `scripts/create-budget.sh` |
 
 The application is stateless. All household data lives in DynamoDB, and all
 identity data lives in Cognito.
@@ -26,7 +35,7 @@ identity data lives in Cognito.
 
 - JDK 21
 - AWS SAM CLI and AWS credentials with permission to create the resources above
-- An email address for budget alerts (optional but recommended)
+- An email address if you want budget alerts (optional)
 - The Maven wrapper is committed, so Maven does not need to be installed
 
 ## 1. Build
@@ -62,12 +71,11 @@ Deploy:
 sam deploy \
   --template-file sam/template.yaml \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
   --parameter-overrides \
-    SessionSecret="<generated secret>" \
-    BudgetAlertEmail="you@example.com"
+    SessionSecret="<generated secret>"
 ```
 
 `SessionSecret` encrypts the OIDC session cookie. Reuse the same value on every
@@ -80,7 +88,7 @@ Read the Function URL output (it ends with a trailing slash):
 ```bash
 aws cloudformation describe-stacks \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --query "Stacks[0].Outputs[?OutputKey=='FunctionUrl'].OutputValue" \
   --output text
 ```
@@ -91,19 +99,30 @@ Redeploy with the URL and the same `SessionSecret`:
 sam deploy \
   --template-file sam/template.yaml \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
   --parameter-overrides \
     SessionSecret="<the same secret>" \
-    BudgetAlertEmail="you@example.com" \
-    OidcCallbackUrl="https://<function-url-id>.lambda-url.eu-central-1.on.aws/q/oidc-callback" \
-    OidcLogoutUrl="https://<function-url-id>.lambda-url.eu-central-1.on.aws/"
+    OidcCallbackUrl="https://<function-url-id>.lambda-url.eu-north-1.on.aws/q/oidc-callback" \
+    OidcLogoutUrl="https://<function-url-id>.lambda-url.eu-north-1.on.aws/"
 ```
 
 Every later deployment must keep the real callback/logout URLs and the same
 `SessionSecret`. Store them in a gitignored `samconfig.toml` or pass them
 explicitly.
+
+### Optional budget alert
+
+The stack does not create the budget. Create it with the Budgets API:
+
+```bash
+./scripts/create-budget.sh --email you@example.com
+```
+
+The script creates a $1 monthly budget and the 80% actual and 100% forecasted
+email notifications. It is idempotent: re-running it updates the limit and the
+notifications. Confirm the AWS subscription email to receive alerts.
 
 ## 4. Create the family accounts
 
@@ -145,7 +164,7 @@ reference them, so do not change an id after the household starts using the app.
 ```bash
 ./scripts/provision-household.sh \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --members-file ~/domaci-odmeny-members.tsv
 ```
 
@@ -225,7 +244,7 @@ The `Members` table is `<stack-name>-Members` and uses the keys `PK` and `SK`:
 7. Check the health endpoint:
 
    ```bash
-   curl -s https://<function-url-id>.lambda-url.eu-central-1.on.aws/q/health
+   curl -s https://<function-url-id>.lambda-url.eu-north-1.on.aws/q/health
    ```
 
    It returns `{"status": "UP", ...}`.
@@ -245,7 +264,7 @@ The `Members` table is `<stack-name>-Members` and uses the keys `PK` and `SK`:
 ## Teardown
 
 ```bash
-sam delete --stack-name domaci-odmeny --region eu-central-1
+sam delete --stack-name domaci-odmeny --region eu-north-1
 ```
 
 The four DynamoDB tables are retained. Delete them separately only after taking
@@ -261,3 +280,5 @@ a backup. See [`runbook.md`](runbook.md) for backup and restore procedures.
 | `403` on a parent page | User is not in the `parents` group | Add the user to the group and sign in again |
 | `Databáze není dostupná` banner | Lambda cannot reach DynamoDB | Check the function role policy and the table names in the environment |
 | Budget alert email | Spend or forecast crossed the threshold | Inspect Cost Explorer; see the cost section in the runbook |
+| `Unrecognized resource types: [AWS::Budgets::Budget]` | AWS Budgets is not a CloudFormation resource type in this region | Keep the budget out of the stack and run `scripts/create-budget.sh` |
+| `MemorySize ... less than or equal to 512` | The AWS Free plan caps Lambda memory at 512 MB | Deploy with the template default `LambdaMemorySize=512` |

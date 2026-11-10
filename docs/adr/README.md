@@ -22,6 +22,7 @@ Each ADR captures one significant decision, the context in which it was made, an
 | [ADR-0006](0006-use-append-only-ledger-and-integer-minor-units.md) | Use an append-only ledger and integer minor units | Accepted |
 | [ADR-0007](0007-self-reported-chores-with-parent-approval.md) | Use self-reported chores with parent approval | Accepted |
 | [ADR-0008](0008-use-sam-and-free-tier-guardrails.md) | Use SAM and free-tier guardrails | Accepted |
+| [ADR-0009](0009-deploy-to-eu-north-1-with-free-plan-limits.md) | Deploy to eu-north-1 with Free-plan limits | Accepted |
 
 ## Adding a new ADR
 

@@ -1,6 +1,6 @@
 # ADR-0008: Use SAM and free-tier guardrails
 
-- **Status:** Accepted
+- **Status:** Accepted (region and budget details partially superseded by [ADR-0009](0009-deploy-to-eu-north-1-with-free-plan-limits.md))
 - **Date:** 2026-11-07
 
 ## Context

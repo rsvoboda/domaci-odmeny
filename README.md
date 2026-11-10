@@ -53,13 +53,27 @@ Implemented:
 - DynamoDB adapters using transactions with condition expressions, so double
   approval or double payout cannot credit twice
 - SAM template: Cognito, four DynamoDB tables, Lambda + Function URL, log
-  retention, JSON production logs, alarms and a $1 budget with actual and
-  forecasted alerts
+  retention, JSON production logs and error/throttle alarms
+- Optional $1 monthly budget with actual and forecasted email alerts, created
+  by `scripts/create-budget.sh` (AWS Budgets is not a CloudFormation resource
+  type in `eu-north-1`)
 - 99 hermetic tests plus 3 real-DynamoDB integration tests: money/period
   primitives, domain workflow, statements, settings, audit trail, export, PWA
   endpoints, web flow, CSRF, authorization, and UTF-8 form input
 
 Not implemented yet: partial payouts. See the delivery plan in the proposal.
+
+### Live deployment
+
+The stack `domaci-odmeny` is deployed in `eu-north-1` (Stockholm):
+
+- URL: <https://zuwyebqcm7clyipskruwxihtaa0yzqui.lambda-url.eu-north-1.on.aws/>
+- Health: <https://zuwyebqcm7clyipskruwxihtaa0yzqui.lambda-url.eu-north-1.on.aws/q/health>
+- Region and Free-plan deviations: [ADR-0009](docs/adr/0009-deploy-to-eu-north-1-with-free-plan-limits.md)
+
+The URL is public but every page requires Cognito sign-in. Family accounts are
+created separately with `scripts/provision-household.sh`; no personal data is
+stored in this repository.
 
 ## Prerequisites
 
@@ -196,10 +210,18 @@ artifact referenced by the SAM template.
 
 ## Deploy to AWS
 
-The stack lives in `sam/template.yaml` and uses region `eu-central-1` by
+The stack lives in `sam/template.yaml` and uses region `eu-north-1` by
 default through the deployment command. The full step-by-step guide, including
 Cognito account creation, member linking, verification and rollback, is in
 [`docs/deployment.md`](docs/deployment.md).
+
+> **Why `eu-north-1`?** The target AWS account has an Organizations service
+> control policy that denies CloudFormation, Lambda, DynamoDB, Cognito and most
+> other services outside `eu-north-1` (Stockholm). See
+> [ADR-0009](docs/adr/0009-deploy-to-eu-north-1-with-free-plan-limits.md). The
+> application keeps `Europe/Prague` accounting periods; only the AWS region
+> differs from the original proposal. The Free plan also caps Lambda at 512 MB,
+> which is the template default.
 
 ### 1. Build
 
@@ -218,12 +240,11 @@ them in.
 sam deploy \
   --template-file sam/template.yaml \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
   --parameter-overrides \
-    SessionSecret="$(openssl rand -base64 48)" \
-    BudgetAlertEmail="you@example.com"
+    SessionSecret="$(openssl rand -base64 48)"
 ```
 
 Keep the generated `SessionSecret` somewhere safe and reuse it on every
@@ -236,7 +257,7 @@ Read the `FunctionUrl` output (it ends with a trailing slash):
 ```bash
 aws cloudformation describe-stacks \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --query "Stacks[0].Outputs[?OutputKey=='FunctionUrl'].OutputValue" \
   --output text
 ```
@@ -247,17 +268,30 @@ Redeploy with the URL, keeping the same `SessionSecret`:
 sam deploy \
   --template-file sam/template.yaml \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
   --parameter-overrides \
     SessionSecret="<the same secret>" \
-    BudgetAlertEmail="you@example.com" \
-    OidcCallbackUrl="https://<function-url-id>.lambda-url.eu-central-1.on.aws/q/oidc-callback" \
-    OidcLogoutUrl="https://<function-url-id>.lambda-url.eu-central-1.on.aws/"
+    OidcCallbackUrl="https://<function-url-id>.lambda-url.eu-north-1.on.aws/q/oidc-callback" \
+    OidcLogoutUrl="https://<function-url-id>.lambda-url.eu-north-1.on.aws/"
 ```
 
-### 4. Create users and household members
+### 4. Optional budget alert
+
+The stack no longer creates the budget because `AWS::Budgets::Budget` is not a
+supported CloudFormation resource type in `eu-north-1`. Create it with the
+Budgets API instead:
+
+```bash
+./scripts/create-budget.sh --email you@example.com
+```
+
+The script is idempotent, creates a $1 monthly budget and sets the 80% actual
+and 100% forecasted email alerts. Confirm the AWS subscription email to start
+receiving alerts.
+
+### 5. Create users and household members
 
 Self sign-up is disabled. Use the provisioning script, which creates the
 Cognito users, adds them to the right group, links each user's `sub` to a member
@@ -269,7 +303,7 @@ $EDITOR ~/domaci-odmeny-members.tsv
 
 ./scripts/provision-household.sh \
   --stack-name domaci-odmeny \
-  --region eu-central-1 \
+  --region eu-north-1 \
   --members-file ~/domaci-odmeny-members.tsv
 ```
 
@@ -297,7 +331,7 @@ Every later deployment must keep the real `OidcCallbackUrl`, `OidcLogoutUrl` and
 | `app.currency` | `CURRENCY` | `CZK` | Household currency |
 | `app.timezone` | `TIMEZONE` | `Europe/Prague` | Accounting period timezone |
 | `app.seed.catalog` | `SEED_CATALOG` | `false` (`true` in prod) | Seed household + chore catalog if empty |
-| `app.dynamodb.region` | `AWS_REGION` | `eu-central-1` | DynamoDB region |
+| `app.dynamodb.region` | `AWS_REGION` | `eu-north-1` | DynamoDB region |
 | `app.dynamodb.endpoint-override` | — | empty | Local DynamoDB endpoint |
 | `app.dynamodb.tables.members` | `MEMBERS_TABLE` | `Members` | Members table |
 | `app.dynamodb.tables.tasks` | `TASKS_TABLE` | `Tasks` | Tasks table |
