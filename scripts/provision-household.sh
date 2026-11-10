@@ -45,7 +45,8 @@ Options:
                           administrator sets a permanent password.
   -h, --help              Show this help
 
-The members file has five tab-separated columns:
+The members file has five columns separated by tabs (two or more spaces
+between columns are accepted too):
   member-id  cognito-username  display-name  PARENT|CHILD  base-allowance-CZK
 
 Lines starting with # and blank lines are ignored.
@@ -166,10 +167,23 @@ fi
 NEW_ACCOUNTS=""
 MEMBER_COUNT=0
 
-while IFS=$'\t' read -r member_id username display_name role base_czk; do
-    case "$member_id" in
+# The documented format is tab-separated, but a file with two or more spaces
+# between the columns is accepted as well. A final line without a trailing
+# newline is processed, and CRLF line endings are tolerated.
+while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
         ""|\#*) continue ;;
     esac
+
+    if [[ "$line" == *$'\t'* ]]; then
+        IFS=$'\t' read -r member_id username display_name role base_czk <<< "$line"
+    else
+        normalized="$(printf '%s' "$line" | sed -E "s/[[:space:]]{2,}/$(printf '\t')/g")"
+        IFS=$'\t' read -r member_id username display_name role base_czk <<< "$normalized"
+    fi
 
     if [ -z "$username" ] || [ -z "$display_name" ] || [ -z "$role" ]; then
         echo "Skipping incomplete line for member '$member_id'." >&2

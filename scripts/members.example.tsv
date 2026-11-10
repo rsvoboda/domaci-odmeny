@@ -1,6 +1,6 @@
 # Member definitions for scripts/provision-household.sh
 #
-# Columns, separated by a TAB:
+# Columns, separated by a TAB (two or more spaces between columns also work):
 #   member-id   cognito-username   display-name   PARENT|CHILD   base-allowance-CZK
 #
 # Copy this file to a location outside the repository, replace the values with

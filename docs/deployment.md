@@ -145,7 +145,8 @@ cp scripts/members.example.tsv ~/domaci-odmeny-members.tsv
 $EDITOR ~/domaci-odmeny-members.tsv
 ```
 
-The file is tab-separated:
+The file is tab-separated (two or more spaces between columns also work, and a
+missing trailing newline is fine):
 
 ```text
 member-id   cognito-username   display-name   PARENT|CHILD   base-allowance-CZK
