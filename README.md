@@ -9,6 +9,7 @@ a task-assignment or reminder system.
 
 - Product proposal: [`docs/proposal.md`](docs/proposal.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/README.md)
+- AWS architecture: [`docs/aws-architecture.md`](docs/aws-architecture.md)
 - Deployment guide: [`docs/deployment.md`](docs/deployment.md)
 - Operations runbook: [`docs/runbook.md`](docs/runbook.md)
 

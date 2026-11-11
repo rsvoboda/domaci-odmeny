@@ -2,7 +2,8 @@
 
 This runbook covers backup, restore, user recovery, verification and cost
 guardrails for **Domácí odměny**. Deployment steps are in
-[`deployment.md`](deployment.md).
+[`deployment.md`](deployment.md) and the AWS service inventory is in
+[`aws-architecture.md`](aws-architecture.md).
 
 ## Service summary
 

@@ -1,9 +1,10 @@
 # Deployment
 
 This document describes how to deploy **Domácí odměny** to AWS, how to create
-the four family accounts, and how to verify a deployment. Operational
-procedures (backups, restore, user recovery) live in
-[`runbook.md`](runbook.md).
+the four family accounts, and how to verify a deployment. The service inventory
+and deployment mechanics are described in
+[`aws-architecture.md`](aws-architecture.md). Operational procedures (backups,
+restore, user recovery) live in [`runbook.md`](runbook.md).
 
 The stack is defined in [`sam/template.yaml`](../sam/template.yaml) and is
 deployed with the AWS SAM CLI. The default region is `eu-north-1`.
