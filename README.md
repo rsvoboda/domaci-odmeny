@@ -224,6 +224,21 @@ Cognito account creation, member linking, verification and rollback, is in
 > differs from the original proposal. The Free plan also caps Lambda at 512 MB,
 > which is the template default.
 
+### One-command deploy
+
+[`scripts/deploy.sh`](scripts/deploy.sh) wraps the whole flow: it builds, reads
+the session secret from `~/.config/domaci-odmeny/session-secret`, resolves the
+real Cognito callback URL from the stack output, deploys, and polls `/q/health`.
+
+```bash
+./scripts/deploy.sh                # build, deploy, verify
+./scripts/deploy.sh --skip-build   # redeploy the current target/function.zip
+```
+
+It refuses to run without a session secret, never prints it, and warns when the
+working tree has uncommitted changes. The manual steps below remain the
+reference for the first deployment on a fresh account.
+
 ### 1. Build
 
 ```bash
@@ -370,7 +385,7 @@ src/main/resources/
 
 sam/template.yaml      # Cognito, DynamoDB, Lambda + Function URL, guardrails
 compose.yaml           # DynamoDB Local for development
-scripts/               # production provisioning helper and example member file
+scripts/               # deploy, provisioning, budget and member-file helpers
 ```
 
 ## Design notes

@@ -78,6 +78,11 @@ involved in deployment.
 
 ### 2. Deploy with SAM
 
+[`scripts/deploy.sh`](../scripts/deploy.sh) performs the steps below in one
+command: it builds, injects the stored session secret, resolves the callback URL
+from the stack output, deploys, and polls `/q/health`. The equivalent manual
+command is:
+
 ```bash
 SECRET="$(cat ~/.config/domaci-odmeny/session-secret)"
 

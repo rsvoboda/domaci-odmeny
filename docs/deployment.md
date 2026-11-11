@@ -39,6 +39,25 @@ identity data lives in Cognito.
 - An email address if you want budget alerts (optional)
 - The Maven wrapper is committed, so Maven does not need to be installed
 
+## One-command deployment
+
+For an existing stack, [`scripts/deploy.sh`](../scripts/deploy.sh) runs the whole
+flow:
+
+```bash
+./scripts/deploy.sh                # build, deploy, verify health
+./scripts/deploy.sh --skip-build   # redeploy the current target/function.zip
+```
+
+It reads the session secret from `~/.config/domaci-odmeny/session-secret`
+(override with `--session-secret-file`), takes the base URL from the stack's
+`FunctionUrl` output (override with `--base-url`), deploys, and polls
+`/q/health` until it returns `UP`. It refuses to run without a session secret,
+never prints it, and warns when the working tree has uncommitted changes.
+
+The manual steps below are the reference for the very first deployment on a
+fresh account, where the Function URL does not exist yet.
+
 ## 1. Build
 
 ```bash
