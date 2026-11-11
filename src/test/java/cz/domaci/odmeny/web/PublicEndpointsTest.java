@@ -45,7 +45,8 @@ class PublicEndpointsTest {
                 .when().get("/sw.js")
                 .then()
                 .statusCode(200)
-                .body(containsString("domaci-odmeny-v1"));
+                .body(containsString("domaci-odmeny-v2"))
+                .body(containsString("/assets/app.css?v=2"));
 
         given()
                 .redirects().follow(false)

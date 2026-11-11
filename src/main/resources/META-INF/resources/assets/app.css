@@ -250,7 +250,11 @@ ul.statement-lines li:last-child {
     align-self: flex-start;
 }
 
-article form + form {
+/* Space stacked action forms inside an article. The direct-child combinator
+   matters: the chore tiles on the child home are sibling <form>s nested in
+   .task-grid, and a plain "article form + form" pushed every tile but the
+   first down by 0.75rem. */
+article > form + form {
     margin-top: 0.75rem;
 }
 

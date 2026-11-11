@@ -3,11 +3,16 @@
  *
  * Pages are deliberately not cached: they contain household data and are
  * rendered per user. Offline data entry is out of scope for v1.
+ *
+ * Cache-first is intentional, so bumping CACHE here (and the matching ?v=
+ * token on the stylesheet link in layout.html) is how an asset change reaches
+ * installed clients. Static assets are also served with a one-day immutable
+ * HTTP cache, so the query token is what makes a new URL for a new file.
  */
-const CACHE = "domaci-odmeny-v1";
+const CACHE = "domaci-odmeny-v2";
 const ASSETS = [
     "/assets/pico.min.css",
-    "/assets/app.css",
+    "/assets/app.css?v=2",
     "/assets/htmx.min.js",
     "/favicon.svg",
     "/manifest.webmanifest",
